@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Generated embeddings
+backend/database/embeddings.npy
+
+# User uploaded images
+backend/uploads/*
+!backend/uploads/.gitkeep
+
+# Hugging Face model/cache
+huggingface_cache/
+.cache/
+
+# Environment variables
+.env
+
+# VS Code
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

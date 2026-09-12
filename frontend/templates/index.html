@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>Jewellery AI Matcher</title>
+
+    <link rel="stylesheet" href="/static/css/style.css" />
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Jewellery AI Matcher</h1>
+
+      <p class="subtitle">Upload a jewellery image to find similar designs.</p>
+
+      <!-- Upload section -->
+
+      <div class="upload-box">
+        <input type="file" id="imageInput" accept="image/*" />
+
+        <button id="matchButton">Find Similar Jewellery</button>
+      </div>
+
+      <!-- Preview -->
+
+      <div id="previewSection" class="hidden">
+        <h2>Uploaded Jewellery</h2>
+
+        <img id="previewImage" class="preview-image" alt="Uploaded jewellery" />
+      </div>
+
+      <!-- Loading message -->
+
+      <div id="loading" class="hidden">Finding similar jewellery...</div>
+
+      <!-- Results -->
+
+      <div id="resultsSection" class="hidden">
+        <h2>Matching Results</h2>
+
+        <div id="results"></div>
+      </div>
+
+      <!-- Error -->
+
+      <div id="error" class="error hidden"></div>
+    </div>
+
+    <script src="/static/js/app.js"></script>
+  </body>
+</html>

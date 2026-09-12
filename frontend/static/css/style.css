@@ -1,0 +1,194 @@
+/* --------------------------------------------------
+   BASIC PAGE
+-------------------------------------------------- */
+
+body {
+
+    margin: 0;
+
+    font-family: Arial, sans-serif;
+
+    background: #f5f5f5;
+
+    color: #222;
+}
+
+
+/* --------------------------------------------------
+   MAIN CONTAINER
+-------------------------------------------------- */
+
+.container {
+
+    width: 90%;
+
+    max-width: 1100px;
+
+    margin: 40px auto;
+
+    text-align: center;
+}
+
+
+/* --------------------------------------------------
+   HEADINGS
+-------------------------------------------------- */
+
+h1 {
+
+    font-size: 36px;
+
+    margin-bottom: 10px;
+}
+
+
+.subtitle {
+
+    color: #666;
+
+    margin-bottom: 30px;
+}
+
+
+/* --------------------------------------------------
+   UPLOAD BOX
+-------------------------------------------------- */
+
+.upload-box {
+
+    background: white;
+
+    padding: 30px;
+
+    border-radius: 12px;
+
+    box-shadow: 0 2px 10px
+        rgba(0, 0, 0, 0.1);
+
+}
+
+
+/* --------------------------------------------------
+   BUTTON
+-------------------------------------------------- */
+
+button {
+
+    display: block;
+
+    margin: 20px auto 0;
+
+    padding: 12px 25px;
+
+    border: none;
+
+    border-radius: 8px;
+
+    background: #222;
+
+    color: white;
+
+    font-size: 16px;
+
+    cursor: pointer;
+}
+
+
+button:hover {
+
+    opacity: 0.85;
+}
+
+
+/* --------------------------------------------------
+   PREVIEW
+-------------------------------------------------- */
+
+.preview-image {
+
+    width: 250px;
+
+    max-height: 300px;
+
+    object-fit: contain;
+
+    margin-top: 10px;
+
+    border-radius: 10px;
+}
+
+
+/* --------------------------------------------------
+   RESULTS
+-------------------------------------------------- */
+
+#results {
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(auto-fit, minmax(200px, 1fr));
+
+    gap: 20px;
+
+    margin-top: 20px;
+}
+
+
+.result-card {
+
+    background: white;
+
+    padding: 15px;
+
+    border-radius: 10px;
+
+    box-shadow: 0 2px 8px
+        rgba(0, 0, 0, 0.1);
+}
+
+
+.result-card img {
+
+    width: 100%;
+
+    height: 180px;
+
+    object-fit: contain;
+
+    border-radius: 8px;
+}
+
+
+.similarity {
+
+    font-size: 20px;
+
+    font-weight: bold;
+
+    margin-top: 10px;
+}
+
+
+/* --------------------------------------------------
+   UTILITY
+-------------------------------------------------- */
+
+.hidden {
+
+    display: none;
+}
+
+
+.error {
+
+    margin-top: 20px;
+
+    padding: 15px;
+
+    background: #ffe5e5;
+
+    color: #b00000;
+
+    border-radius: 8px;
+}

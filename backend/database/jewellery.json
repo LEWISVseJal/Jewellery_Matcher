@@ -1,0 +1,44 @@
+[
+    {
+        "id": "J001",
+        "name": "Gold Ring 001",
+        "category": "Ring",
+        "image": "J001.jpeg"
+    },
+    {
+        "id": "J002",
+        "name": "Gold Ring 002",
+        "category": "Ring",
+        "image": "J002.jpeg"
+    },
+    {
+        "id": "J003",
+        "name": "Gold Ring 003",
+        "category": "Ring",
+        "image": "J003.jpeg"
+    },
+    {
+        "id": "J004",
+        "name": "Gold Ring 004",
+        "category": "Ring",
+        "image": "J004.jpeg"
+    },
+    {
+        "id": "J005",
+        "name": "Gold Ring 005",
+        "category": "Ring",
+        "image": "J005.jpeg"
+    },
+    {
+        "id": "J006",
+        "name": "Gold Ring 006",
+        "category": "Ring",
+        "image": "J006.jpeg"
+    },
+    {
+        "id": "J007",
+        "name": "Gold Ring 007",
+        "category": "Ring",
+        "image": "J007.jpeg"
+    }
+]

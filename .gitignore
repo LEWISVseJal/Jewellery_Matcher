@@ -20,9 +20,6 @@ huggingface/
 transformers/
 sentence_transformers/
 
-# Generated embeddings
-backend/database/*.npy
-
 # Generated segmented catalogue
 backend/database/segmented_catalogue/
 
@@ -38,11 +35,6 @@ backend/**/debug/
 backend/**/debug_*
 backend/**/screenshots/
 
-# Old backup catalogue
-backup_old_catalogue/
-
-# Original image collection
-images_G_P/
 
 # Windows files
 Thumbs.db

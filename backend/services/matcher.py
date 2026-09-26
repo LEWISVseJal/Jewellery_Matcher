@@ -17,86 +17,56 @@ from backend.config import (
 from backend.services.embedding import create_embedding
 from backend.services.segmentation import segment_jewellery
 
-
 # ============================================================
 # PATHS
 # ============================================================
 
-BASE_DIR = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
-    )
-)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-DATABASE_DIR = os.path.join(
-    BASE_DIR,
-    "database"
-)
+DATABASE_DIR = os.path.join(BASE_DIR, "database")
 
-QUERY_SEGMENTED_DIR = os.path.join(
-    DATABASE_DIR,
-    "segmented_catalogue"
-)
+QUERY_SEGMENTED_DIR = os.path.join(DATABASE_DIR, "segmented_catalogue")
 
-QUERY_SEGMENTED_PATH = os.path.join(
-    QUERY_SEGMENTED_DIR,
-    "query_hybrid.jpg"
-)
+QUERY_SEGMENTED_PATH = os.path.join(QUERY_SEGMENTED_DIR, "query_hybrid.jpg")
 
 
 # ============================================================
 # SUPPORTED COLLECTIONS
 # ============================================================
 
-VALID_COLLECTIONS = {
-    "gold",
-    "prototype"
-}
+VALID_COLLECTIONS = {"gold", "prototype"}
 
 
 # ============================================================
 # LOAD CATALOGUE
 # ============================================================
 
+
 def load_catalogue():
 
-    if not os.path.exists(
-        JEWELLERY_JSON
-    ):
-        print(
-            "[MATCHER] jewellery.json not found."
-        )
+    if not os.path.exists(JEWELLERY_JSON):
+
+        print("[MATCHER] jewellery.json not found.")
 
         return []
 
     try:
 
-        with open(
-            JEWELLERY_JSON,
-            "r",
-            encoding="utf-8"
-        ) as file:
+        with open(JEWELLERY_JSON, "r", encoding="utf-8") as file:
 
             data = json.load(file)
 
     except Exception as error:
 
-        print(
-            "[MATCHER] Failed to read jewellery.json:"
-        )
+        print("[MATCHER] Failed to read jewellery.json:")
 
         print(error)
 
         return []
 
-    if not isinstance(
-        data,
-        list
-    ):
+    if not isinstance(data, list):
 
-        print(
-            "[MATCHER] jewellery.json must contain a list."
-        )
+        print("[MATCHER] jewellery.json must contain a list.")
 
         return []
 
@@ -107,155 +77,90 @@ def load_catalogue():
 # LOAD EMBEDDINGS
 # ============================================================
 
-def load_embeddings(
-    collection
-):
+
+def load_embeddings(collection):
 
     collection = collection.lower()
 
     if collection == "gold":
 
-        embedding_file = (
-            GOLD_EMBEDDINGS_FILE
-        )
+        embedding_file = GOLD_EMBEDDINGS_FILE
 
     elif collection == "prototype":
 
-        embedding_file = (
-            PROTOTYPE_EMBEDDINGS_FILE
-        )
+        embedding_file = PROTOTYPE_EMBEDDINGS_FILE
 
     else:
 
-        print(
-            f"[MATCHER] Invalid collection: "
-            f"{collection}"
-        )
+        print(f"[MATCHER] Invalid collection: " f"{collection}")
 
-        return np.empty(
-            (0, 768),
-            dtype=np.float32
-        )
+        return np.empty((0, 768), dtype=np.float32)
 
-    if not os.path.exists(
-        embedding_file
-    ):
+    if not os.path.exists(embedding_file):
 
-        print(
-            "[MATCHER] Embedding file not found:"
-        )
+        print("[MATCHER] Embedding file not found:")
 
-        print(
-            embedding_file
-        )
+        print(embedding_file)
 
-        return np.empty(
-            (0, 768),
-            dtype=np.float32
-        )
+        return np.empty((0, 768), dtype=np.float32)
 
     try:
 
-        embeddings = np.load(
-            embedding_file
-        )
+        embeddings = np.load(embedding_file)
 
     except Exception as error:
 
-        print(
-            "[MATCHER] Failed to load embeddings:"
-        )
+        print("[MATCHER] Failed to load embeddings:")
 
         print(error)
 
-        return np.empty(
-            (0, 768),
-            dtype=np.float32
-        )
+        return np.empty((0, 768), dtype=np.float32)
 
     if embeddings.ndim == 1:
 
-        embeddings = embeddings.reshape(
-            1,
-            -1
-        )
+        embeddings = embeddings.reshape(1, -1)
 
-    return embeddings.astype(
-        np.float32
-    )
+    return embeddings.astype(np.float32)
 
 
 # ============================================================
 # COSINE SIMILARITY
 # ============================================================
 
-def cosine_similarity(
-    query_embedding,
-    embeddings
-):
 
-    if (
-        embeddings is None
-        or len(embeddings) == 0
-    ):
+def cosine_similarity(query_embedding, embeddings):
 
-        return np.array(
-            [],
-            dtype=np.float32
-        )
+    if embeddings is None or len(embeddings) == 0:
 
-    query = np.asarray(
-        query_embedding,
-        dtype=np.float32
-    )
+        return np.array([], dtype=np.float32)
 
-    matrix = np.asarray(
-        embeddings,
-        dtype=np.float32
-    )
+    query = np.asarray(query_embedding, dtype=np.float32)
 
-    query_norm = np.linalg.norm(
-        query
-    )
+    matrix = np.asarray(embeddings, dtype=np.float32)
+
+    query_norm = np.linalg.norm(query)
 
     if query_norm == 0:
 
-        return np.zeros(
-            len(matrix),
-            dtype=np.float32
-        )
+        return np.zeros(len(matrix), dtype=np.float32)
 
-    query = (
-        query / query_norm
-    )
+    query = query / query_norm
 
-    matrix_norm = np.linalg.norm(
-        matrix,
-        axis=1,
-        keepdims=True
-    )
+    matrix_norm = np.linalg.norm(matrix, axis=1, keepdims=True)
 
-    matrix_norm[
-        matrix_norm == 0
-    ] = 1.0
+    matrix_norm[matrix_norm == 0] = 1.0
 
-    matrix = (
-        matrix / matrix_norm
-    )
+    matrix = matrix / matrix_norm
 
-    return np.dot(
-        matrix,
-        query
-    )
+    return np.dot(matrix, query)
 
 
 # ============================================================
 # GET COLLECTION ITEMS
 # ============================================================
 
-def get_collection_items(
-    collection
-):
+
+def get_collection_items(collection):
 
     collection = collection.lower()
 
@@ -265,21 +170,11 @@ def get_collection_items(
 
     for item in catalogue:
 
-        item_collection = str(
-            item.get(
-                "collection",
-                ""
-            )
-        ).lower().strip()
+        item_collection = str(item.get("collection", "")).lower().strip()
 
-        if (
-            item_collection
-            == collection
-        ):
+        if item_collection == collection:
 
-            items.append(
-                item
-            )
+            items.append(item)
 
     return items
 
@@ -288,26 +183,18 @@ def get_collection_items(
 # GET ORIGINAL IMAGE PATH
 # ============================================================
 
-def get_original_image_path(
-    collection,
-    filename
-):
+
+def get_original_image_path(collection, filename):
 
     collection = collection.lower()
 
     if collection == "gold":
 
-        return os.path.join(
-            GOLD_CATALOGUE_DIR,
-            filename
-        )
+        return os.path.join(GOLD_CATALOGUE_DIR, filename)
 
     if collection == "prototype":
 
-        return os.path.join(
-            PROTOTYPE_CATALOGUE_DIR,
-            filename
-        )
+        return os.path.join(PROTOTYPE_CATALOGUE_DIR, filename)
 
     return ""
 
@@ -316,34 +203,22 @@ def get_original_image_path(
 # GET SEGMENTED IMAGE PATH
 # ============================================================
 
-def get_segmented_image_path(
-    collection,
-    filename
-):
+
+def get_segmented_image_path(collection, filename):
 
     collection = collection.lower()
 
-    base_name = os.path.splitext(
-        filename
-    )[0]
+    base_name = os.path.splitext(filename)[0]
 
-    segmented_filename = (
-        base_name + ".jpg"
-    )
+    segmented_filename = base_name + ".jpg"
 
     if collection == "gold":
 
-        return os.path.join(
-            GOLD_SEGMENTED_DIR,
-            segmented_filename
-        )
+        return os.path.join(GOLD_SEGMENTED_DIR, segmented_filename)
 
     if collection == "prototype":
 
-        return os.path.join(
-            PROTOTYPE_SEGMENTED_DIR,
-            segmented_filename
-        )
+        return os.path.join(PROTOTYPE_SEGMENTED_DIR, segmented_filename)
 
     return ""
 
@@ -352,34 +227,18 @@ def get_segmented_image_path(
 # GET BEST AVAILABLE IMAGE
 # ============================================================
 
-def get_best_catalogue_image(
-    collection,
-    filename
-):
 
-    segmented_path = (
-        get_segmented_image_path(
-            collection,
-            filename
-        )
-    )
+def get_best_catalogue_image(collection, filename):
 
-    if os.path.exists(
-        segmented_path
-    ):
+    segmented_path = get_segmented_image_path(collection, filename)
+
+    if os.path.exists(segmented_path):
 
         return segmented_path
 
-    original_path = (
-        get_original_image_path(
-            collection,
-            filename
-        )
-    )
+    original_path = get_original_image_path(collection, filename)
 
-    if os.path.exists(
-        original_path
-    ):
+    if os.path.exists(original_path):
 
         return original_path
 
@@ -390,17 +249,14 @@ def get_best_catalogue_image(
 # SHAPE DESCRIPTOR
 # ============================================================
 
-def create_shape_descriptor(
-    image_path
-):
+
+def create_shape_descriptor(image_path):
 
     if not image_path:
+
         return None
 
-    image = cv2.imread(
-        image_path,
-        cv2.IMREAD_GRAYSCALE
-    )
+    image = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
 
     if image is None:
 
@@ -410,82 +266,49 @@ def create_shape_descriptor(
     # Resize
     # --------------------------------------------------------
 
-    image = cv2.resize(
-        image,
-        (256, 256),
-        interpolation=cv2.INTER_AREA
-    )
+    image = cv2.resize(image, (256, 256), interpolation=cv2.INTER_AREA)
 
     # --------------------------------------------------------
     # Improve contrast
     # --------------------------------------------------------
 
-    image = cv2.equalizeHist(
-        image
-    )
+    image = cv2.equalizeHist(image)
 
     # --------------------------------------------------------
     # Reduce noise
     # --------------------------------------------------------
 
-    image = cv2.GaussianBlur(
-        image,
-        (5, 5),
-        0
-    )
+    image = cv2.GaussianBlur(image, (5, 5), 0)
 
     # --------------------------------------------------------
     # Edge detection
     # --------------------------------------------------------
 
-    edges = cv2.Canny(
-        image,
-        30,
-        100
-    )
+    edges = cv2.Canny(image, 30, 100)
 
     # --------------------------------------------------------
     # Close small gaps
     # --------------------------------------------------------
 
-    kernel = np.ones(
-        (3, 3),
-        np.uint8
-    )
+    kernel = np.ones((3, 3), np.uint8)
 
-    edges = cv2.morphologyEx(
-        edges,
-        cv2.MORPH_CLOSE,
-        kernel
-    )
+    edges = cv2.morphologyEx(edges, cv2.MORPH_CLOSE, kernel)
 
     # --------------------------------------------------------
     # Resize descriptor
     # --------------------------------------------------------
 
-    edges = cv2.resize(
-        edges,
-        (64, 64),
-        interpolation=cv2.INTER_AREA
-    )
+    edges = cv2.resize(edges, (64, 64), interpolation=cv2.INTER_AREA)
 
-    descriptor = (
-        edges.astype(
-            np.float32
-        ) / 255.0
-    )
+    descriptor = edges.astype(np.float32) / 255.0
 
     descriptor = descriptor.flatten()
 
-    norm = np.linalg.norm(
-        descriptor
-    )
+    norm = np.linalg.norm(descriptor)
 
     if norm > 0:
 
-        descriptor = (
-            descriptor / norm
-        )
+        descriptor = descriptor / norm
 
     return descriptor
 
@@ -494,31 +317,16 @@ def create_shape_descriptor(
 # SHAPE SIMILARITY
 # ============================================================
 
-def calculate_shape_similarity(
-    query_descriptor,
-    target_descriptor
-):
 
-    if (
-        query_descriptor is None
-        or target_descriptor is None
-    ):
+def calculate_shape_similarity(query_descriptor, target_descriptor):
+
+    if query_descriptor is None or target_descriptor is None:
 
         return 0.0
 
-    score = np.dot(
-        query_descriptor,
-        target_descriptor
-    )
+    score = np.dot(query_descriptor, target_descriptor)
 
-    # Small numerical protection
-    score = max(
-        0.0,
-        min(
-            float(score),
-            1.0
-        )
-    )
+    score = max(0.0, min(float(score), 1.0))
 
     return score
 
@@ -527,32 +335,18 @@ def calculate_shape_similarity(
 # ORB SIMILARITY
 # ============================================================
 
-def calculate_orb_similarity(
-    query_image_path,
-    target_image_path
-):
 
-    if (
-        not query_image_path
-        or not target_image_path
-    ):
+def calculate_orb_similarity(query_image_path, target_image_path):
+
+    if not query_image_path or not target_image_path:
 
         return 0.0
 
-    query = cv2.imread(
-        query_image_path,
-        cv2.IMREAD_GRAYSCALE
-    )
+    query = cv2.imread(query_image_path, cv2.IMREAD_GRAYSCALE)
 
-    target = cv2.imread(
-        target_image_path,
-        cv2.IMREAD_GRAYSCALE
-    )
+    target = cv2.imread(target_image_path, cv2.IMREAD_GRAYSCALE)
 
-    if (
-        query is None
-        or target is None
-    ):
+    if query is None or target is None:
 
         return 0.0
 
@@ -560,53 +354,25 @@ def calculate_orb_similarity(
     # Resize
     # --------------------------------------------------------
 
-    query = cv2.resize(
-        query,
-        (512, 512),
-        interpolation=cv2.INTER_AREA
-    )
+    query = cv2.resize(query, (512, 512), interpolation=cv2.INTER_AREA)
 
-    target = cv2.resize(
-        target,
-        (512, 512),
-        interpolation=cv2.INTER_AREA
-    )
+    target = cv2.resize(target, (512, 512), interpolation=cv2.INTER_AREA)
 
     # --------------------------------------------------------
     # ORB
     # --------------------------------------------------------
 
-    orb = cv2.ORB_create(
-        nfeatures=500,
-        scaleFactor=1.2,
-        nlevels=8
-    )
+    orb = cv2.ORB_create(nfeatures=500, scaleFactor=1.2, nlevels=8)
 
-    keypoints1, descriptors1 = (
-        orb.detectAndCompute(
-            query,
-            None
-        )
-    )
+    keypoints1, descriptors1 = orb.detectAndCompute(query, None)
 
-    keypoints2, descriptors2 = (
-        orb.detectAndCompute(
-            target,
-            None
-        )
-    )
+    keypoints2, descriptors2 = orb.detectAndCompute(target, None)
 
-    if (
-        descriptors1 is None
-        or descriptors2 is None
-    ):
+    if descriptors1 is None or descriptors2 is None:
 
         return 0.0
 
-    if (
-        len(descriptors1) < 2
-        or len(descriptors2) < 2
-    ):
+    if len(descriptors1) < 2 or len(descriptors2) < 2:
 
         return 0.0
 
@@ -614,18 +380,11 @@ def calculate_orb_similarity(
     # Feature matching
     # --------------------------------------------------------
 
-    matcher = cv2.BFMatcher(
-        cv2.NORM_HAMMING,
-        crossCheck=False
-    )
+    matcher = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
     try:
 
-        matches = matcher.knnMatch(
-            descriptors1,
-            descriptors2,
-            k=2
-        )
+        matches = matcher.knnMatch(descriptors1, descriptors2, k=2)
 
     except Exception:
 
@@ -636,144 +395,115 @@ def calculate_orb_similarity(
     for pair in matches:
 
         if len(pair) < 2:
+
             continue
 
         first, second = pair
 
-        if (
-            first.distance
-            < 0.75 * second.distance
-        ):
+        if first.distance < 0.75 * second.distance:
 
-            good_matches.append(
-                first
-            )
+            good_matches.append(first)
 
     # --------------------------------------------------------
     # Normalize
     # --------------------------------------------------------
 
-    denominator = max(
-        1,
-        min(
-            len(keypoints1),
-            len(keypoints2)
-        )
-    )
+    denominator = max(1, min(len(keypoints1), len(keypoints2)))
 
-    score = (
-        len(good_matches)
-        / denominator
-    )
+    score = len(good_matches) / denominator
 
-    return float(
-        min(
-            score,
-            1.0
-        )
-    )
+    return float(min(score, 1.0))
 
 
 # ============================================================
 # HYBRID SCORE
 # ============================================================
 
-def calculate_hybrid_score(
-    dino_score,
-    shape_score,
-    orb_score
-):
+
+def calculate_hybrid_score(dino_score, shape_score, orb_score):
     """
     Design-focused score.
 
-    DINO:
-        75%
+    DINO  = 75%
+    Shape = 20%
+    ORB   = 5%
 
-    Shape:
-        20%
-
-    ORB:
-        5%
-
-    Colour is reduced because the DINO input
-    is grayscale.
+    The current DINO embedding is intended
+    to reduce colour influence.
     """
 
-    score = (
-        (0.75 * dino_score)
-        +
-        (0.20 * shape_score)
-        +
-        (0.05 * orb_score)
+    score = (0.75 * dino_score) + (0.20 * shape_score) + (0.05 * orb_score)
+
+    return float(score)
+
+
+# ============================================================
+# GET USER-FACING NAME
+# ============================================================
+
+
+def get_display_name(item):
+    """
+    Returns the jewellery name that should be
+    shown to the user.
+
+    Priority:
+
+        name
+        display_name
+        jewellery_name
+        title
+        id
+        image filename
+    """
+
+    name = (
+        item.get("name")
+        or item.get("display_name")
+        or item.get("jewellery_name")
+        or item.get("title")
+        or item.get("id")
+        or item.get("image")
+        or "Jewellery"
     )
 
-    return float(
-        score
-    )
+    return str(name).strip()
 
 
 # ============================================================
 # SEARCH ONE COLLECTION
 # ============================================================
 
-def search_collection(
-    query_image_path,
-    collection,
-    query_embedding,
-    top_k=TOP_K
-):
+
+def search_collection(query_image_path, collection, query_embedding, top_k=TOP_K):
 
     collection = collection.lower()
 
     if collection not in VALID_COLLECTIONS:
 
-        print(
-            f"[MATCHER] Invalid target collection: "
-            f"{collection}"
-        )
+        print(f"[MATCHER] Invalid target collection: " f"{collection}")
 
         return []
 
     print()
-    print(
-        f"[MATCHER] Searching ONLY: "
-        f"{collection.upper()}"
-    )
+
+    print(f"[MATCHER] Searching ONLY: " f"{collection.upper()}")
 
     # --------------------------------------------------------
     # Load target collection
     # --------------------------------------------------------
 
-    catalogue_items = (
-        get_collection_items(
-            collection
-        )
-    )
+    catalogue_items = get_collection_items(collection)
 
-    embeddings = (
-        load_embeddings(
-            collection
-        )
-    )
+    embeddings = load_embeddings(collection)
 
-    print(
-        f"[MATCHER] Catalogue items: "
-        f"{len(catalogue_items)}"
-    )
+    print(f"[MATCHER] Catalogue items: " f"{len(catalogue_items)}")
 
-    print(
-        f"[MATCHER] Embeddings: "
-        f"{len(embeddings)}"
-    )
+    print(f"[MATCHER] Embeddings: " f"{len(embeddings)}")
 
-    if (
-        len(catalogue_items) == 0
-        or len(embeddings) == 0
-    ):
+    if len(catalogue_items) == 0 or len(embeddings) == 0:
 
-        print(
-            "[MATCHER] No searchable items."
-        )
+        print("[MATCHER] No searchable items.")
 
         return []
 
@@ -781,24 +511,13 @@ def search_collection(
     # Calculate DINO similarities
     # --------------------------------------------------------
 
-    dino_scores = cosine_similarity(
-        query_embedding,
-        embeddings
-    )
+    dino_scores = cosine_similarity(query_embedding, embeddings)
 
     # --------------------------------------------------------
-    # IMPORTANT
-    #
-    # The embedding file must have the same ordering
-    # as the catalogue images.
-    #
-    # We only compare up to the safe common length.
+    # Keep catalogue and embeddings aligned
     # --------------------------------------------------------
 
-    count = min(
-        len(catalogue_items),
-        len(dino_scores)
-    )
+    count = min(len(catalogue_items), len(dino_scores))
 
     if count == 0:
 
@@ -808,11 +527,7 @@ def search_collection(
     # Query shape
     # --------------------------------------------------------
 
-    query_shape = (
-        create_shape_descriptor(
-            query_image_path
-        )
-    )
+    query_shape = create_shape_descriptor(query_image_path)
 
     results = []
 
@@ -820,20 +535,11 @@ def search_collection(
     # Compare each target item
     # --------------------------------------------------------
 
-    for index in range(
-        count
-    ):
+    for index in range(count):
 
-        item = catalogue_items[
-            index
-        ]
+        item = catalogue_items[index]
 
-        filename = str(
-            item.get(
-                "image",
-                ""
-            )
-        )
+        filename = str(item.get("image", "")).strip()
 
         if not filename:
 
@@ -843,22 +549,13 @@ def search_collection(
         # Target image
         # ----------------------------------------------------
 
-        target_image = (
-            get_best_catalogue_image(
-                collection,
-                filename
-            )
-        )
+        target_image = get_best_catalogue_image(collection, filename)
 
         if not target_image:
 
-            print(
-                "[MATCHER] Image not found:"
-            )
+            print("[MATCHER] Image not found:")
 
-            print(
-                filename
-            )
+            print(filename)
 
             continue
 
@@ -866,121 +563,112 @@ def search_collection(
         # DINO score
         # ----------------------------------------------------
 
-        dino_score = float(
-            dino_scores[index]
-        )
+        dino_score = float(dino_scores[index])
 
         # ----------------------------------------------------
         # Shape score
         # ----------------------------------------------------
 
-        target_shape = (
-            create_shape_descriptor(
-                target_image
-            )
-        )
+        target_shape = create_shape_descriptor(target_image)
 
-        shape_score = (
-            calculate_shape_similarity(
-                query_shape,
-                target_shape
-            )
-        )
+        shape_score = calculate_shape_similarity(query_shape, target_shape)
 
         # ----------------------------------------------------
         # ORB score
         # ----------------------------------------------------
 
-        orb_score = (
-            calculate_orb_similarity(
-                query_image_path,
-                target_image
-            )
-        )
+        orb_score = calculate_orb_similarity(query_image_path, target_image)
 
         # ----------------------------------------------------
         # Hybrid score
         # ----------------------------------------------------
 
-        hybrid_score = (
-            calculate_hybrid_score(
-                dino_score,
-                shape_score,
-                orb_score
-            )
-        )
+        hybrid_score = calculate_hybrid_score(dino_score, shape_score, orb_score)
 
         # ----------------------------------------------------
         # Build result
         # ----------------------------------------------------
 
-        result = dict(
-            item
-        )
+        result = dict(item)
 
+        # ----------------------------------------------------
         # Force collection
-        result["collection"] = (
-            collection
-        )
+        # ----------------------------------------------------
 
-        result["dino_score"] = round(
-            dino_score,
-            4
-        )
+        result["collection"] = collection
 
-        result["shape_score"] = round(
-            shape_score,
-            4
-        )
+        # ----------------------------------------------------
+        # USER-FACING NAME
+        #
+        # This is the important part.
+        #
+        # Example:
+        #
+        # J018
+        # Gold Infinity Ring
+        #
+        # User sees:
+        #
+        # Gold Infinity Ring
+        # ----------------------------------------------------
 
-        result["orb_score"] = round(
-            orb_score,
-            4
-        )
+        result["display_name"] = get_display_name(item)
 
-        result["similarity"] = round(
-            hybrid_score,
-            4
-        )
+        # ----------------------------------------------------
+        # Preserve internal ID
+        # ----------------------------------------------------
 
-        result["image_url"] = (
-            f"/catalogue/"
-            f"{collection}/"
-            f"{filename}"
-        )
+        result["jewellery_id"] = str(item.get("id", ""))
 
-        results.append(
-            result
-        )
+        # ----------------------------------------------------
+        # Scores
+        # ----------------------------------------------------
+
+        result["dino_score"] = round(dino_score, 4)
+
+        result["shape_score"] = round(shape_score, 4)
+
+        result["orb_score"] = round(orb_score, 4)
+
+        result["similarity"] = round(hybrid_score, 4)
+
+        # ----------------------------------------------------
+        # Image URL
+        # ----------------------------------------------------
+
+        result["image_url"] = f"/catalogue/" f"{collection}/" f"{filename}"
+
+        results.append(result)
 
     # --------------------------------------------------------
     # Sort
     # --------------------------------------------------------
 
-    results.sort(
-        key=lambda item: item[
-            "similarity"
-        ],
-        reverse=True
-    )
+    results.sort(key=lambda item: item["similarity"], reverse=True)
 
     # --------------------------------------------------------
     # Debug output
+    #
+    # IMPORTANT:
+    # Print the jewellery NAME, not J018.jpeg
     # --------------------------------------------------------
 
     print()
-    print(
-        "[MATCHER] Top candidate scores:"
-    )
 
-    for rank, result in enumerate(
-        results[:5],
-        start=1
-    ):
+    print("[MATCHER] Top candidate scores:")
+
+    for rank, result in enumerate(results[:5], start=1):
+
+        display_name = (
+            result.get("display_name")
+            or result.get("name")
+            or result.get("id")
+            or result.get("image", "Unknown Jewellery")
+        )
 
         print(
             f"  #{rank} "
-            f"{result.get('image', 'unknown')} | "
+            f"{display_name} | "
             f"DINO="
             f"{result['dino_score']:.4f} | "
             f"SHAPE="
@@ -991,117 +679,66 @@ def search_collection(
             f"{result['similarity']:.4f}"
         )
 
-    return results[
-        :top_k
-    ]
+    return results[:top_k]
 
 
 # ============================================================
 # IDENTIFY SOURCE COLLECTION
 # ============================================================
 
-def identify_source_collection(
-    query_image_path
-):
+
+def identify_source_collection(query_image_path):
 
     print()
-    print(
-        "[MATCHER] Identifying source collection..."
-    )
+
+    print("[MATCHER] Identifying source collection...")
 
     # --------------------------------------------------------
     # Load embeddings
     # --------------------------------------------------------
 
-    gold_embeddings = (
-        load_embeddings(
-            "gold"
-        )
-    )
+    gold_embeddings = load_embeddings("gold")
 
-    prototype_embeddings = (
-        load_embeddings(
-            "prototype"
-        )
-    )
+    prototype_embeddings = load_embeddings("prototype")
 
-    if (
-        len(gold_embeddings) == 0
-        and len(prototype_embeddings) == 0
-    ):
+    if len(gold_embeddings) == 0 and len(prototype_embeddings) == 0:
 
-        print(
-            "[MATCHER] No catalogue embeddings found."
-        )
+        print("[MATCHER] No catalogue embeddings found.")
 
         return {
             "source_collection": None,
             "target_collection": None,
             "gold_similarity": 0.0,
-            "prototype_similarity": 0.0
+            "prototype_similarity": 0.0,
         }
 
     # --------------------------------------------------------
     # Create query embedding
     # --------------------------------------------------------
 
-    query_embedding = (
-        create_embedding(
-            query_image_path
-        )
-    )
+    query_embedding = create_embedding(query_image_path)
 
     # --------------------------------------------------------
     # Gold similarity
     # --------------------------------------------------------
 
-    gold_scores = (
-        cosine_similarity(
-            query_embedding,
-            gold_embeddings
-        )
-    )
+    gold_scores = cosine_similarity(query_embedding, gold_embeddings)
 
-    gold_best = (
-        float(
-            np.max(
-                gold_scores
-            )
-        )
-        if len(gold_scores) > 0
-        else 0.0
-    )
+    gold_best = float(np.max(gold_scores)) if len(gold_scores) > 0 else 0.0
 
     # --------------------------------------------------------
     # Prototype similarity
     # --------------------------------------------------------
 
-    prototype_scores = (
-        cosine_similarity(
-            query_embedding,
-            prototype_embeddings
-        )
-    )
+    prototype_scores = cosine_similarity(query_embedding, prototype_embeddings)
 
     prototype_best = (
-        float(
-            np.max(
-                prototype_scores
-            )
-        )
-        if len(prototype_scores) > 0
-        else 0.0
+        float(np.max(prototype_scores)) if len(prototype_scores) > 0 else 0.0
     )
 
-    print(
-        f"[MATCHER] Gold similarity: "
-        f"{gold_best:.4f}"
-    )
+    print(f"[MATCHER] Gold similarity: " f"{gold_best:.4f}")
 
-    print(
-        f"[MATCHER] Prototype similarity: "
-        f"{prototype_best:.4f}"
-    )
+    print(f"[MATCHER] Prototype similarity: " f"{prototype_best:.4f}")
 
     # --------------------------------------------------------
     # Decide source
@@ -1119,21 +756,15 @@ def identify_source_collection(
 
         target_collection = "gold"
 
-    print(
-        f"[MATCHER] Source collection: "
-        f"{source_collection}"
-    )
+    print(f"[MATCHER] Source collection: " f"{source_collection}")
 
-    print(
-        f"[MATCHER] Target collection: "
-        f"{target_collection}"
-    )
+    print(f"[MATCHER] Target collection: " f"{target_collection}")
 
     return {
         "source_collection": source_collection,
         "target_collection": target_collection,
         "gold_similarity": gold_best,
-        "prototype_similarity": prototype_best
+        "prototype_similarity": prototype_best,
     }
 
 
@@ -1141,11 +772,8 @@ def identify_source_collection(
 # MAIN BIDIRECTIONAL MATCH
 # ============================================================
 
-def match_jewellery(
-    image_path,
-    target_collection="auto",
-    top_k=None
-):
+
+def match_jewellery(image_path, target_collection="auto", top_k=None):
     """
     STRICT BIDIRECTIONAL SEARCH.
 
@@ -1155,7 +783,8 @@ def match_jewellery(
     Prototype upload:
         Prototype → Gold
 
-    The source collection is NEVER returned.
+    The source collection is NEVER returned
+    in the search results.
     """
 
     if top_k is None:
@@ -1163,41 +792,23 @@ def match_jewellery(
         top_k = TOP_K
 
     print()
-    print(
-        "=" * 70
-    )
 
-    print(
-        "JEWELLERY BIDIRECTIONAL SEARCH"
-    )
+    print("=" * 70)
 
-    print(
-        "=" * 70
-    )
+    print("JEWELLERY BIDIRECTIONAL SEARCH")
 
-    print(
-        "Query image:",
-        os.path.basename(
-            image_path
-        )
-    )
+    print("=" * 70)
+
+    print("Query image:", os.path.basename(image_path))
 
     # ========================================================
     # STEP 1
     # IDENTIFY SOURCE
     # ========================================================
 
-    identification = (
-        identify_source_collection(
-            image_path
-        )
-    )
+    identification = identify_source_collection(image_path)
 
-    source_collection = (
-        identification[
-            "source_collection"
-        ]
-    )
+    source_collection = identification["source_collection"]
 
     if source_collection is None:
 
@@ -1208,7 +819,7 @@ def match_jewellery(
             "gold_similarity": 0.0,
             "prototype_similarity": 0.0,
             "best_similarity": 0.0,
-            "results": []
+            "results": [],
         }
 
     # ========================================================
@@ -1218,30 +829,19 @@ def match_jewellery(
 
     if source_collection == "gold":
 
-        target_collection = (
-            "prototype"
-        )
+        target_collection = "prototype"
 
     else:
 
-        target_collection = (
-            "gold"
-        )
+        target_collection = "gold"
 
-    # IMPORTANT:
-    # Ignore any same-collection request.
-    #
-    # The system requirement is always:
-    #
-    # Gold -> Prototype
-    # Prototype -> Gold
+    # ========================================================
+    # SAFETY CHECK
+    # ========================================================
 
     if target_collection == source_collection:
 
-        raise RuntimeError(
-            "Source and target collection "
-            "cannot be the same."
-        )
+        raise RuntimeError("Source and target collection " "cannot be the same.")
 
     # ========================================================
     # STEP 3
@@ -1249,9 +849,8 @@ def match_jewellery(
     # ========================================================
 
     print()
-    print(
-        "[MATCHER] STRICT CROSS-COLLECTION SEARCH"
-    )
+
+    print("[MATCHER] STRICT CROSS-COLLECTION SEARCH")
 
     print(
         f"[MATCHER] "
@@ -1260,35 +859,23 @@ def match_jewellery(
         f"{target_collection.upper()}"
     )
 
-    print(
-        "[MATCHER] Searching ONLY the opposite collection."
-    )
+    print("[MATCHER] Searching ONLY the opposite collection.")
 
     # ========================================================
     # STEP 4
     # SEGMENT QUERY ONCE
     # ========================================================
 
-    os.makedirs(
-        QUERY_SEGMENTED_DIR,
-        exist_ok=True
-    )
+    os.makedirs(QUERY_SEGMENTED_DIR, exist_ok=True)
 
-    segment_jewellery(
-        image_path,
-        QUERY_SEGMENTED_PATH
-    )
+    segment_jewellery(image_path, QUERY_SEGMENTED_PATH)
 
     # ========================================================
     # STEP 5
     # CREATE QUERY EMBEDDING
     # ========================================================
 
-    query_embedding = (
-        create_embedding(
-            QUERY_SEGMENTED_PATH
-        )
-    )
+    query_embedding = create_embedding(QUERY_SEGMENTED_PATH)
 
     # ========================================================
     # STEP 6
@@ -1296,10 +883,7 @@ def match_jewellery(
     # ========================================================
 
     results = search_collection(
-        QUERY_SEGMENTED_PATH,
-        target_collection,
-        query_embedding,
-        top_k
+        QUERY_SEGMENTED_PATH, target_collection, query_embedding, top_k
     )
 
     # ========================================================
@@ -1311,32 +895,17 @@ def match_jewellery(
 
     for result in results:
 
-        result_collection = str(
-            result.get(
-                "collection",
-                ""
-            )
-        ).lower().strip()
+        result_collection = str(result.get("collection", "")).lower().strip()
 
-        # Only target collection is allowed.
-        if (
-            result_collection
-            != target_collection
-        ):
+        if result_collection != target_collection:
 
             continue
 
-        # Never allow source collection.
-        if (
-            result_collection
-            == source_collection
-        ):
+        if result_collection == source_collection:
 
             continue
 
-        safe_results.append(
-            result
-        )
+        safe_results.append(result)
 
     results = safe_results
 
@@ -1347,12 +916,7 @@ def match_jewellery(
 
     if results:
 
-        best_similarity = float(
-            results[0].get(
-                "similarity",
-                0.0
-            )
-        )
+        best_similarity = float(results[0].get("similarity", 0.0))
 
     else:
 
@@ -1364,100 +928,59 @@ def match_jewellery(
 
     if source_collection == "gold":
 
-        source_similarity = (
-            identification[
-                "gold_similarity"
-            ]
-        )
+        source_similarity = identification["gold_similarity"]
 
     else:
 
-        source_similarity = (
-            identification[
-                "prototype_similarity"
-            ]
-        )
+        source_similarity = identification["prototype_similarity"]
 
     # ========================================================
     # FINAL LOG
     # ========================================================
 
     print()
-    print(
-        "=" * 70
-    )
 
-    print(
-        "FINAL SEARCH RESULT"
-    )
+    print("=" * 70)
 
-    print(
-        "=" * 70
-    )
+    print("FINAL SEARCH RESULT")
 
-    print(
-        f"Source collection : "
-        f"{source_collection}"
-    )
+    print("=" * 70)
 
-    print(
-        f"Target collection : "
-        f"{target_collection}"
-    )
+    print(f"Source collection : " f"{source_collection}")
 
-    print(
-        f"Results returned  : "
-        f"{len(results)}"
-    )
+    print(f"Target collection : " f"{target_collection}")
 
-    print(
-        f"Best similarity   : "
-        f"{best_similarity:.4f}"
-    )
+    print(f"Results returned  : " f"{len(results)}")
 
-    print(
-        "=" * 70
-    )
+    print(f"Best similarity   : " f"{best_similarity:.4f}")
+
+    # --------------------------------------------------------
+    # Print result names
+    # --------------------------------------------------------
+
+    if results:
+
+        print()
+        print("Returned jewellery:")
+
+        for index, result in enumerate(results, start=1):
+
+            print(f"  {index}. " f"{result.get('display_name', 'Jewellery')}")
+
+    print("=" * 70)
 
     # ========================================================
     # API RESPONSE
     # ========================================================
 
     return {
-        "source_collection": (
-            source_collection
-        ),
-
-        "target_collection": (
-            target_collection
-        ),
-
-        "source_similarity": round(
-            source_similarity,
-            4
-        ),
-
-        "gold_similarity": round(
-            identification[
-                "gold_similarity"
-            ],
-            4
-        ),
-
-        "prototype_similarity": round(
-            identification[
-                "prototype_similarity"
-            ],
-            4
-        ),
-
-        "best_similarity": round(
-            best_similarity,
-            4
-        ),
-
-        # STRICTLY OPPOSITE COLLECTION
-        "results": results
+        "source_collection": (source_collection),
+        "target_collection": (target_collection),
+        "source_similarity": round(source_similarity, 4),
+        "gold_similarity": round(identification["gold_similarity"], 4),
+        "prototype_similarity": round(identification["prototype_similarity"], 4),
+        "best_similarity": round(best_similarity, 4),
+        "results": results,
     }
 
 
@@ -1465,20 +988,15 @@ def match_jewellery(
 # DIRECT COLLECTION SEARCH
 # ============================================================
 
-def match_collection(
-    image_path,
-    collection,
-    top_k=TOP_K
-):
+
+def match_collection(image_path, collection, top_k=TOP_K):
     """
     Explicit collection search.
 
-    This function is kept for compatibility.
+    Kept for compatibility.
 
-    IMPORTANT:
-    Normal UI search should use match_jewellery()
-    because match_jewellery() enforces the
-    Gold ↔ Prototype direction.
+    Normal UI search should use
+    match_jewellery().
     """
 
     collection = collection.lower()
@@ -1487,47 +1005,22 @@ def match_collection(
 
         return []
 
-    query_segmented = os.path.join(
-        QUERY_SEGMENTED_DIR,
-        "query_collection.jpg"
-    )
+    query_segmented = os.path.join(QUERY_SEGMENTED_DIR, "query_collection.jpg")
 
-    os.makedirs(
-        QUERY_SEGMENTED_DIR,
-        exist_ok=True
-    )
+    os.makedirs(QUERY_SEGMENTED_DIR, exist_ok=True)
 
-    segment_jewellery(
-        image_path,
-        query_segmented
-    )
+    segment_jewellery(image_path, query_segmented)
 
-    query_embedding = (
-        create_embedding(
-            query_segmented
-        )
-    )
+    query_embedding = create_embedding(query_segmented)
 
-    return search_collection(
-        query_segmented,
-        collection,
-        query_embedding,
-        top_k
-    )
+    return search_collection(query_segmented, collection, query_embedding, top_k)
 
 
 # ============================================================
 # COMPATIBILITY WRAPPER
 # ============================================================
 
-def find_matches(
-    image_path,
-    collection="auto",
-    top_k=TOP_K
-):
 
-    return match_jewellery(
-        image_path,
-        target_collection="auto",
-        top_k=top_k
-    )
+def find_matches(image_path, collection="auto", top_k=TOP_K):
+
+    return match_jewellery(image_path, target_collection="auto", top_k=top_k)

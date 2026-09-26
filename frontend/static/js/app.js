@@ -5,664 +5,406 @@
 ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
+  console.log("JewelMatch AI app.js loaded");
 
-    console.log("JewelMatch AI app.js loaded");
-
-    /* ========================================================
+  /* ========================================================
        ELEMENTS
     ======================================================== */
 
-    const uploadArea =
-        document.getElementById("uploadArea");
+  const uploadArea = document.getElementById("uploadArea");
 
-    const uploadContent =
-        document.getElementById("uploadContent");
+  const uploadContent = document.getElementById("uploadContent");
 
-    const imageInput =
-        document.getElementById("imageInput");
+  const imageInput = document.getElementById("imageInput");
 
-    const browseButton =
-        document.getElementById("browseButton");
+  const browseButton = document.getElementById("browseButton");
 
-    const previewContainer =
-        document.getElementById("previewContainer");
+  const previewContainer = document.getElementById("previewContainer");
 
-    const previewImage =
-        document.getElementById("previewImage");
+  const previewImage = document.getElementById("previewImage");
 
-    const previewWrapper =
-        document.querySelector(".preview-image-wrapper");
+  const previewWrapper = document.querySelector(".preview-image-wrapper");
 
-    const fileName =
-        document.getElementById("fileName");
+  const fileName = document.getElementById("fileName");
 
-    const fileSize =
-        document.getElementById("fileSize");
+  const fileSize = document.getElementById("fileSize");
 
-    const changeImageButton =
-        document.getElementById("changeImageButton");
+  const changeImageButton = document.getElementById("changeImageButton");
 
-    const matchButton =
-        document.getElementById("matchButton");
+  const matchButton = document.getElementById("matchButton");
 
-    const matchButtonText =
-        document.getElementById("matchButtonText");
+  const matchButtonText = document.getElementById("matchButtonText");
 
-    const matchSpinner =
-        document.getElementById("matchSpinner");
+  const matchSpinner = document.getElementById("matchSpinner");
 
-    const errorBox =
-        document.getElementById("error");
+  const errorBox = document.getElementById("error");
 
-    const loadingBox =
-        document.getElementById("loading");
+  const loadingBox = document.getElementById("loading");
 
-    const resultsSection =
-        document.getElementById("resultsSection");
+  const resultsSection = document.getElementById("resultsSection");
 
-    const bestMatchBadge =
-        document.getElementById("bestMatchBadge");
+  const bestMatchBadge = document.getElementById("bestMatchBadge");
 
-    const resultsContainer =
-        document.getElementById("results");
+  const resultsContainer = document.getElementById("results");
 
-
-    /* ========================================================
+  /* ========================================================
        STATE
     ======================================================== */
 
-    let selectedFile = null;
+  let selectedFile = null;
 
-    let imageZoom = 1;
+  let imageZoom = 1;
 
-    let imagePositionX = 0;
+  let imagePositionX = 0;
 
-    let imagePositionY = 0;
+  let imagePositionY = 0;
 
-    let isDragging = false;
+  let isDragging = false;
 
-    let dragStartX = 0;
+  let dragStartX = 0;
 
-    let dragStartY = 0;
+  let dragStartY = 0;
 
-    let startPositionX = 0;
+  let startPositionX = 0;
 
-    let startPositionY = 0;
+  let startPositionY = 0;
 
-
-    /* ========================================================
+  /* ========================================================
        CHECK REQUIRED ELEMENTS
     ======================================================== */
 
-    console.log("imageInput:", imageInput);
-    console.log("browseButton:", browseButton);
-    console.log("uploadArea:", uploadArea);
+  console.log("imageInput:", imageInput);
 
-    if (!imageInput) {
-        console.error(
-            "ERROR: #imageInput not found"
-        );
-        return;
-    }
+  console.log("browseButton:", browseButton);
 
-    if (!browseButton) {
-        console.error(
-            "ERROR: #browseButton not found"
-        );
-        return;
-    }
+  console.log("uploadArea:", uploadArea);
 
-    if (!uploadArea) {
-        console.error(
-            "ERROR: #uploadArea not found"
-        );
-        return;
-    }
+  if (!imageInput) {
+    console.error("ERROR: #imageInput not found");
 
+    return;
+  }
 
-    /* ========================================================
+  if (!browseButton) {
+    console.error("ERROR: #browseButton not found");
+
+    return;
+  }
+
+  if (!uploadArea) {
+    console.error("ERROR: #uploadArea not found");
+
+    return;
+  }
+
+  /* ========================================================
        BROWSE BUTTON
     ======================================================== */
 
-    browseButton.addEventListener(
-        "click",
-        function (event) {
+  browseButton.addEventListener("click", function (event) {
+    event.preventDefault();
 
-            event.preventDefault();
-            event.stopPropagation();
+    event.stopPropagation();
 
-            console.log(
-                "Browse Image clicked"
-            );
+    console.log("Browse Image clicked");
 
-            imageInput.click();
-        }
-    );
+    imageInput.click();
+  });
 
-
-    /* ========================================================
+  /* ========================================================
        UPLOAD AREA CLICK
     ======================================================== */
 
-    uploadArea.addEventListener(
-        "click",
-        function (event) {
+  uploadArea.addEventListener("click", function (event) {
+    if (event.target === browseButton || browseButton.contains(event.target)) {
+      return;
+    }
 
-            if (
-                event.target === browseButton ||
-                browseButton.contains(event.target)
-            ) {
-                return;
-            }
+    if (
+      changeImageButton &&
+      (event.target === changeImageButton ||
+        changeImageButton.contains(event.target))
+    ) {
+      return;
+    }
 
-            if (
-                changeImageButton &&
-                (
-                    event.target === changeImageButton ||
-                    changeImageButton.contains(
-                        event.target
-                    )
-                )
-            ) {
-                return;
-            }
-
-            /*
-                When preview is visible, clicking the
-                image should NOT open the file picker.
+    /*
+                When preview is visible,
+                clicking the upload area should
+                NOT open the file picker.
             */
 
-            if (
-                previewContainer &&
-                !previewContainer.classList.contains(
-                    "hidden"
-                )
-            ) {
-                return;
-            }
+    if (previewContainer && !previewContainer.classList.contains("hidden")) {
+      return;
+    }
 
-            console.log(
-                "Upload area clicked"
-            );
+    console.log("Upload area clicked");
 
-            imageInput.click();
-        }
-    );
+    imageInput.click();
+  });
 
-
-    /* ========================================================
+  /* ========================================================
        FILE INPUT
     ======================================================== */
 
-    imageInput.addEventListener(
-        "change",
-        function (event) {
+  imageInput.addEventListener("change", function (event) {
+    console.log("File input changed");
 
-            console.log(
-                "File input changed"
-            );
+    const files = event.target.files;
 
-            const files =
-                event.target.files;
+    if (!files || files.length === 0) {
+      console.log("No file selected");
 
-            if (
-                !files ||
-                files.length === 0
-            ) {
-                console.log(
-                    "No file selected"
-                );
+      return;
+    }
 
-                return;
-            }
+    handleFile(files[0]);
+  });
 
-            handleFile(files[0]);
-        }
-    );
-
-
-    /* ========================================================
+  /* ========================================================
        HANDLE FILE
     ======================================================== */
 
-    function handleFile(file) {
+  function handleFile(file) {
+    console.log("Selected file:", file);
 
-        console.log(
-            "Selected file:",
-            file
-        );
+    hideError();
 
-        hideError();
+    if (!file) {
+      return;
+    }
 
-        if (!file) {
-            return;
-        }
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            FILE TYPE
         ---------------------------------------------------- */
 
-        const allowedTypes = [
-            "image/jpeg",
-            "image/png",
-            "image/webp",
-            "image/bmp"
-        ];
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/bmp"];
 
-        if (
-            !allowedTypes.includes(
-                file.type
-            )
-        ) {
+    if (!allowedTypes.includes(file.type)) {
+      showError("Please select a JPG, JPEG, PNG, WEBP, or BMP image.");
 
-            showError(
-                "Please select a JPG, JPEG, PNG, WEBP, or BMP image."
-            );
+      resetSelectedFile();
 
-            resetSelectedFile();
+      return;
+    }
 
-            return;
-        }
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            FILE SIZE
         ---------------------------------------------------- */
 
-        const maxSize =
-            20 * 1024 * 1024;
+    const maxSize = 20 * 1024 * 1024;
 
-        if (
-            file.size > maxSize
-        ) {
+    if (file.size > maxSize) {
+      showError("Image size must be less than 20 MB.");
 
-            showError(
-                "Image size must be less than 20 MB."
-            );
+      resetSelectedFile();
 
-            resetSelectedFile();
+      return;
+    }
 
-            return;
-        }
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            SAVE FILE
         ---------------------------------------------------- */
 
-        selectedFile = file;
+    selectedFile = file;
 
-
-        /* ----------------------------------------------------
-           RESET IMAGE VIEWER
+    /* ----------------------------------------------------
+           RESET IMAGE VIEW
         ---------------------------------------------------- */
 
-        resetImageView();
+    resetImageView();
 
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            CREATE PREVIEW
         ---------------------------------------------------- */
 
-        const reader =
-            new FileReader();
+    const reader = new FileReader();
 
-        reader.onload =
-            function (event) {
+    reader.onload = function (event) {
+      previewImage.src = event.target.result;
 
-                previewImage.src =
-                    event.target.result;
+      fileName.textContent = file.name;
 
-                fileName.textContent =
-                    file.name;
+      fileSize.textContent = formatFileSize(file.size);
 
-                fileSize.textContent =
-                    formatFileSize(
-                        file.size
-                    );
+      uploadContent.classList.add("hidden");
 
+      previewContainer.classList.remove("hidden");
 
-                /* Hide upload content */
+      matchButton.disabled = false;
 
-                uploadContent.classList.add(
-                    "hidden"
-                );
+      createZoomControls();
 
+      console.log("Preview displayed");
+    };
 
-                /* Show preview */
+    reader.onerror = function () {
+      showError("Unable to read the selected image.");
+    };
 
-                previewContainer.classList.remove(
-                    "hidden"
-                );
+    reader.readAsDataURL(file);
+  }
 
-
-                /* Enable search */
-
-                matchButton.disabled =
-                    false;
-
-
-                /*
-                    Add zoom controls after
-                    preview becomes visible.
-                */
-
-                createZoomControls();
-
-
-                console.log(
-                    "Preview displayed"
-                );
-            };
-
-
-        reader.onerror =
-            function () {
-
-                showError(
-                    "Unable to read the selected image."
-                );
-            };
-
-
-        reader.readAsDataURL(file);
-    }
-
-
-    /* ========================================================
+  /* ========================================================
        CHANGE IMAGE
     ======================================================== */
 
-    if (changeImageButton) {
+  if (changeImageButton) {
+    changeImageButton.addEventListener("click", function (event) {
+      event.preventDefault();
 
-        changeImageButton.addEventListener(
-            "click",
-            function (event) {
+      event.stopPropagation();
 
-                event.preventDefault();
-                event.stopPropagation();
+      console.log("Change image clicked");
 
-                console.log(
-                    "Change image clicked"
-                );
+      imageInput.click();
+    });
+  }
 
-                imageInput.click();
-            }
-        );
-    }
-
-
-    /* ========================================================
+  /* ========================================================
        DRAG & DROP
     ======================================================== */
 
-    uploadArea.addEventListener(
-        "dragover",
-        function (event) {
+  uploadArea.addEventListener("dragover", function (event) {
+    event.preventDefault();
 
-            event.preventDefault();
-            event.stopPropagation();
+    event.stopPropagation();
 
-            uploadArea.classList.add(
-                "drag-over"
-            );
-        }
-    );
+    uploadArea.classList.add("drag-over");
+  });
 
+  uploadArea.addEventListener("dragleave", function (event) {
+    event.preventDefault();
 
-    uploadArea.addEventListener(
-        "dragleave",
-        function (event) {
+    event.stopPropagation();
 
-            event.preventDefault();
-            event.stopPropagation();
+    uploadArea.classList.remove("drag-over");
+  });
 
-            uploadArea.classList.remove(
-                "drag-over"
-            );
-        }
-    );
+  uploadArea.addEventListener("drop", function (event) {
+    event.preventDefault();
 
+    event.stopPropagation();
 
-    uploadArea.addEventListener(
-        "drop",
-        function (event) {
+    uploadArea.classList.remove("drag-over");
 
-            event.preventDefault();
-            event.stopPropagation();
+    const files = event.dataTransfer.files;
 
-            uploadArea.classList.remove(
-                "drag-over"
-            );
+    if (files && files.length > 0) {
+      handleFile(files[0]);
+    }
+  });
 
-            const files =
-                event.dataTransfer.files;
-
-            if (
-                files &&
-                files.length > 0
-            ) {
-                handleFile(
-                    files[0]
-                );
-            }
-        }
-    );
-
-
-    /* ========================================================
+  /* ========================================================
        MATCH BUTTON
     ======================================================== */
 
-    matchButton.addEventListener(
-        "click",
-        async function (event) {
+  matchButton.addEventListener("click", async function (event) {
+    event.preventDefault();
 
-            event.preventDefault();
+    if (!selectedFile) {
+      showError("Please select an image first.");
 
-            if (!selectedFile) {
+      return;
+    }
 
-                showError(
-                    "Please select an image first."
-                );
+    await findMatches();
+  });
 
-                return;
-            }
-
-            await findMatches();
-        }
-    );
-
-
-    /* ========================================================
+  /* ========================================================
        FIND MATCHES
     ======================================================== */
 
-    async function findMatches() {
+  async function findMatches() {
+    hideError();
 
-        hideError();
+    matchButton.disabled = true;
 
-        matchButton.disabled =
-            true;
-
-
-        if (matchButtonText) {
-
-            matchButtonText.textContent =
-                "Finding Matches...";
-        }
-
-
-        if (matchSpinner) {
-
-            matchSpinner.classList.remove(
-                "hidden"
-            );
-        }
-
-
-        if (loadingBox) {
-
-            loadingBox.classList.remove(
-                "hidden"
-            );
-        }
-
-
-        resultsSection.classList.add(
-            "hidden"
-        );
-
-        resultsContainer.innerHTML =
-            "";
-
-
-        try {
-
-            const formData =
-                new FormData();
-
-            formData.append(
-                "image",
-                selectedFile
-            );
-
-
-            console.log(
-                "Sending image to /api/match"
-            );
-
-
-            const response =
-                await fetch(
-                    "/api/match",
-                    {
-                        method: "POST",
-                        body: formData
-                    }
-                );
-
-
-            console.log(
-                "Response status:",
-                response.status
-            );
-
-
-            let data;
-
-            try {
-
-                data =
-                    await response.json();
-
-            } catch (jsonError) {
-
-                throw new Error(
-                    "The server returned an invalid response."
-                );
-            }
-
-
-            console.log(
-                "Backend response:",
-                data
-            );
-
-
-            if (!response.ok) {
-
-                throw new Error(
-                    data.error ||
-                    data.message ||
-                    "Matching request failed."
-                );
-            }
-
-
-            displayResults(
-                data
-            );
-
-
-        } catch (error) {
-
-            console.error(
-                "Matching error:",
-                error
-            );
-
-            showError(
-                error.message ||
-                "Something went wrong while finding matches."
-            );
-
-
-        } finally {
-
-            matchButton.disabled =
-                false;
-
-
-            if (matchButtonText) {
-
-                matchButtonText.textContent =
-                    "Find Similar Jewellery";
-            }
-
-
-            if (matchSpinner) {
-
-                matchSpinner.classList.add(
-                    "hidden"
-                );
-            }
-
-
-            if (loadingBox) {
-
-                loadingBox.classList.add(
-                    "hidden"
-                );
-            }
-        }
+    if (matchButtonText) {
+      matchButtonText.textContent = "Finding Matches...";
     }
 
+    if (matchSpinner) {
+      matchSpinner.classList.remove("hidden");
+    }
 
-    /* ========================================================
+    if (loadingBox) {
+      loadingBox.classList.remove("hidden");
+    }
+
+    resultsSection.classList.add("hidden");
+
+    resultsContainer.innerHTML = "";
+
+    try {
+      const formData = new FormData();
+
+      formData.append("image", selectedFile);
+
+      console.log("Sending image to /api/match");
+
+      const response = await fetch("/api/match", {
+        method: "POST",
+        body: formData,
+      });
+
+      console.log("Response status:", response.status);
+
+      let data;
+
+      try {
+        data = await response.json();
+      } catch (jsonError) {
+        throw new Error("The server returned an invalid response.");
+      }
+
+      console.log("Backend response:", data);
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || data.message || "Matching request failed.",
+        );
+      }
+
+      displayResults(data);
+    } catch (error) {
+      console.error("Matching error:", error);
+
+      showError(error.message || "Something went wrong while finding matches.");
+    } finally {
+      matchButton.disabled = false;
+
+      if (matchButtonText) {
+        matchButtonText.textContent = "Find Similar Jewellery";
+      }
+
+      if (matchSpinner) {
+        matchSpinner.classList.add("hidden");
+      }
+
+      if (loadingBox) {
+        loadingBox.classList.add("hidden");
+      }
+    }
+  }
+
+  /* ========================================================
        DISPLAY RESULTS
     ======================================================== */
 
-    function displayResults(data) {
+  function displayResults(data) {
+    resultsContainer.innerHTML = "";
 
-        resultsContainer.innerHTML =
-            "";
+    const results = data.results || [];
 
+    console.log("Results received:", results.length);
 
-        const results =
-            data.results || [];
+    if (results.length === 0) {
+      resultsSection.classList.remove("hidden");
 
+      bestMatchBadge.textContent = "No matches found";
 
-        console.log(
-            "Results received:",
-            results.length
-        );
-
-
-        if (
-            results.length === 0
-        ) {
-
-            resultsSection.classList.remove(
-                "hidden"
-            );
-
-            bestMatchBadge.textContent =
-                "No matches found";
-
-
-            resultsContainer.innerHTML = `
+      resultsContainer.innerHTML = `
                 <div class="no-results">
 
                     <h3>
@@ -677,110 +419,107 @@ document.addEventListener("DOMContentLoaded", () => {
                 </div>
             `;
 
-            return;
-        }
+      return;
+    }
 
+    resultsSection.classList.remove("hidden");
 
-        resultsSection.classList.remove(
-            "hidden"
-        );
+    bestMatchBadge.textContent = `${results.length} Match${results.length > 1 ? "es" : ""}`;
 
+    /* ====================================================
+           RESULT CARDS
+        ==================================================== */
 
-        bestMatchBadge.textContent =
-            `${results.length} Match${results.length > 1 ? "es" : ""}`;
+    results.forEach((item, index) => {
+      const card = document.createElement("div");
 
+      card.className = "result-card";
 
-        results.forEach(
-            (item, index) => {
+      /* ------------------------------------------------
+                   COLLECTION
+                ------------------------------------------------ */
 
-                const card =
-                    document.createElement(
-                        "div"
-                    );
+      const collection = item.collection || item.source_collection || "";
 
+      /* ------------------------------------------------
+                   IMAGE FILENAME
+                ------------------------------------------------ */
 
-                card.className =
-                    "result-card";
+      const filename = item.filename || item.image || item.image_name || "";
 
+      /* ------------------------------------------------
+                   IMAGE URL
+                ------------------------------------------------ */
 
-                const collection =
-                    item.collection ||
-                    item.source_collection ||
-                    "";
+      let imageUrl = item.image_url;
 
+      if (!imageUrl && collection && filename) {
+        imageUrl = `/catalogue/${encodeURIComponent(collection)}/${encodeURIComponent(filename)}`;
+      }
 
-                const filename =
-                    item.filename ||
-                    item.image ||
-                    item.image_name ||
-                    "";
+      /* ------------------------------------------------
+                   SCORE
+                ------------------------------------------------ */
 
+      const score = item.similarity ?? item.score ?? item.hybrid_score ?? 0;
 
-                let imageUrl =
-                    item.image_url;
+      const numericScore = Number(score);
 
+      let percentage;
 
-                if (
-                    !imageUrl &&
-                    collection &&
-                    filename
-                ) {
+      if (numericScore <= 1) {
+        percentage = (numericScore * 100).toFixed(1);
+      } else {
+        percentage = numericScore.toFixed(1);
+      }
 
-                    imageUrl =
-                        `/catalogue/${encodeURIComponent(collection)}/${encodeURIComponent(filename)}`;
-                }
+      /* =================================================
+                   IMPORTANT DISPLAY NAME LOGIC
+                   =================================================
 
+                   Priority:
 
-                const score =
-                    item.similarity ??
-                    item.score ??
-                    item.hybrid_score ??
-                    0;
-
-
-                const numericScore =
-                    Number(score);
-
-
-                /*
-                    Backend scores can sometimes
-                    be between 0 and 1 or already
-                    be percentage-like.
+                   1. display_name
+                   2. name
+                   3. jewellery_name
+                   4. title
+                   5. id
+                   6. filename
                 */
 
-                let percentage;
+      const displayName =
+        item.display_name ||
+        item.name ||
+        item.jewellery_name ||
+        item.title ||
+        item.id ||
+        filename ||
+        "Jewellery";
 
-                if (
-                    numericScore <= 1
-                ) {
+      /* ------------------------------------------------
+                   INTERNAL ID
+                   ------------------------------------------------ */
 
-                    percentage =
-                        (
-                            numericScore *
-                            100
-                        ).toFixed(1);
+      const jewelleryId = item.jewellery_id || item.id || "";
 
-                } else {
+      console.log(`Result ${index + 1}:`, {
+        name: displayName,
+        id: jewelleryId,
+        image: filename,
+        similarity: percentage,
+      });
 
-                    percentage =
-                        numericScore.toFixed(1);
-                }
+      /* ------------------------------------------------
+                   RESULT CARD HTML
+                ------------------------------------------------ */
 
-
-                const designId =
-                    item.design_id ||
-                    item.id ||
-                    filename ||
-                    "Jewellery";
-
-
-                card.innerHTML = `
+      card.innerHTML = `
 
                     <div class="result-image-wrapper">
 
                         <img
                             src="${escapeHtml(imageUrl)}"
-                            alt="Jewellery match ${index + 1}"
+                            alt="${escapeHtml(displayName)}"
                             class="result-image"
                         >
 
@@ -790,9 +529,9 @@ document.addEventListener("DOMContentLoaded", () => {
                     <div class="result-info">
 
                         <h3
-                            title="${escapeHtml(designId)}"
+                            title="${escapeHtml(displayName)}"
                         >
-                            ${escapeHtml(designId)}
+                            ${escapeHtml(displayName)}
                         </h3>
 
 
@@ -805,119 +544,82 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
                         ${
-                            collection
-                            ?
-                            `
+                          collection
+                            ? `
                                 <span class="collection-badge">
                                     ${escapeHtml(collection)}
                                 </span>
                             `
-                            :
-                            ""
+                            : ""
                         }
 
                     </div>
+
                 `;
 
+      /* ------------------------------------------------
+                   IMAGE ERROR
+                ------------------------------------------------ */
 
-                const imageElement =
-                    card.querySelector(
-                        ".result-image"
-                    );
+      const imageElement = card.querySelector(".result-image");
 
+      if (imageElement) {
+        imageElement.addEventListener("error", function () {
+          console.error("Unable to load result image:", imageUrl);
 
-                imageElement.addEventListener(
-                    "error",
-                    function () {
+          this.style.display = "none";
+        });
+      }
 
-                        this.style.display =
-                            "none";
-                    }
-                );
-
-
-                resultsContainer.appendChild(
-                    card
-                );
-            }
-        );
-
-
-        /*
-            Smoothly move to results
-            after they are displayed.
-        */
-
-        setTimeout(
-            () => {
-
-                resultsSection.scrollIntoView(
-                    {
-                        behavior: "smooth",
-                        block: "start"
-                    }
-                );
-
-            },
-            100
-        );
-    }
-
+      resultsContainer.appendChild(card);
+    });
 
     /* ========================================================
+           SCROLL TO RESULTS
+        ======================================================== */
+
+    setTimeout(() => {
+      resultsSection.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 100);
+  }
+
+  /* ========================================================
        ZOOM CONTROLS
     ======================================================== */
 
-    function createZoomControls() {
+  function createZoomControls() {
+    if (!previewWrapper) {
+      return;
+    }
 
-        if (!previewWrapper) {
-            return;
-        }
-
-
-        /*
-            Remove old controls first.
-            This prevents duplicates when
-            the user changes the image.
-        */
-
-        const oldControls =
-            previewWrapper.querySelector(
-                ".zoom-controls"
-            );
-
-        if (oldControls) {
-
-            oldControls.remove();
-        }
-
-
-        const oldHint =
-            previewContainer.querySelector(
-                ".zoom-hint"
-            );
-
-        if (oldHint) {
-
-            oldHint.remove();
-        }
-
-
-        /* ----------------------------------------------------
-           CONTROL PANEL
+    /* ----------------------------------------------------
+           REMOVE OLD CONTROLS
         ---------------------------------------------------- */
 
-        const controls =
-            document.createElement(
-                "div"
-            );
+    const oldControls = previewWrapper.querySelector(".zoom-controls");
 
+    if (oldControls) {
+      oldControls.remove();
+    }
 
-        controls.className =
-            "zoom-controls";
+    const oldHint = previewContainer.querySelector(".zoom-hint");
 
+    if (oldHint) {
+      oldHint.remove();
+    }
 
-        controls.innerHTML = `
+    /* ----------------------------------------------------
+           CREATE CONTROL PANEL
+        ---------------------------------------------------- */
+
+    const controls = document.createElement("div");
+
+    controls.className = "zoom-controls";
+
+    controls.innerHTML = `
 
             <button
                 type="button"
@@ -950,634 +652,357 @@ document.addEventListener("DOMContentLoaded", () => {
 
         `;
 
+    previewWrapper.appendChild(controls);
 
-        previewWrapper.appendChild(
-            controls
-        );
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            BUTTON EVENTS
         ---------------------------------------------------- */
 
-        const zoomOut =
-            controls.querySelector(
-                '[data-zoom="out"]'
-            );
+    const zoomOut = controls.querySelector('[data-zoom="out"]');
 
-        const zoomIn =
-            controls.querySelector(
-                '[data-zoom="in"]'
-            );
+    const zoomIn = controls.querySelector('[data-zoom="in"]');
 
-        const resetZoom =
-            controls.querySelector(
-                '[data-zoom="reset"]'
-            );
+    const resetZoom = controls.querySelector('[data-zoom="reset"]');
 
+    zoomOut.addEventListener("click", function (event) {
+      event.preventDefault();
 
-        zoomOut.addEventListener(
-            "click",
-            function (event) {
+      event.stopPropagation();
 
-                event.preventDefault();
-                event.stopPropagation();
+      changeZoom(-0.2);
+    });
 
-                changeZoom(
-                    -0.2
-                );
-            }
-        );
+    zoomIn.addEventListener("click", function (event) {
+      event.preventDefault();
 
+      event.stopPropagation();
 
-        zoomIn.addEventListener(
-            "click",
-            function (event) {
+      changeZoom(0.2);
+    });
 
-                event.preventDefault();
-                event.stopPropagation();
+    resetZoom.addEventListener("click", function (event) {
+      event.preventDefault();
 
-                changeZoom(
-                    0.2
-                );
-            }
-        );
+      event.stopPropagation();
 
+      resetImageView();
+    });
 
-        resetZoom.addEventListener(
-            "click",
-            function (event) {
-
-                event.preventDefault();
-                event.stopPropagation();
-
-                resetImageView();
-            }
-        );
-
-
-        /* ----------------------------------------------------
-           HINT
+    /* ----------------------------------------------------
+           ZOOM HINT
         ---------------------------------------------------- */
 
-        const hint =
-            document.createElement(
-                "div"
-            );
+    const hint = document.createElement("div");
 
+    hint.className = "zoom-hint";
 
-        hint.className =
-            "zoom-hint";
+    hint.textContent = "Scroll to zoom • Drag to move • Reset to fit";
 
+    previewContainer.appendChild(hint);
 
-        hint.textContent =
-            "Scroll to zoom • Drag to move • Reset to fit";
+    setupImagePanAndZoom();
+  }
 
-
-        previewContainer.appendChild(
-            hint
-        );
-
-
-        setupImagePanAndZoom();
-    }
-
-
-    /* ========================================================
+  /* ========================================================
        CHANGE ZOOM
     ======================================================== */
 
-    function changeZoom(amount) {
+  function changeZoom(amount) {
+    imageZoom += amount;
 
-        imageZoom += amount;
-
-
-        /*
-            Minimum zoom
-        */
-
-        if (
-            imageZoom < 1
-        ) {
-
-            imageZoom = 1;
-        }
-
-
-        /*
-            Maximum zoom
-        */
-
-        if (
-            imageZoom > 4
-        ) {
-
-            imageZoom = 4;
-        }
-
-
-        applyImageTransform();
+    if (imageZoom < 1) {
+      imageZoom = 1;
     }
 
+    if (imageZoom > 4) {
+      imageZoom = 4;
+    }
 
-    /* ========================================================
+    applyImageTransform();
+  }
+
+  /* ========================================================
        RESET IMAGE VIEW
     ======================================================== */
 
-    function resetImageView() {
+  function resetImageView() {
+    imageZoom = 1;
 
-        imageZoom = 1;
+    imagePositionX = 0;
 
-        imagePositionX = 0;
+    imagePositionY = 0;
 
-        imagePositionY = 0;
+    applyImageTransform();
+  }
 
-        applyImageTransform();
-    }
-
-
-    /* ========================================================
+  /* ========================================================
        APPLY IMAGE TRANSFORM
     ======================================================== */
 
-    function applyImageTransform() {
-
-        if (!previewImage) {
-            return;
-        }
-
-
-        previewImage.style.transform =
-            `translate(${imagePositionX}px, ${imagePositionY}px) scale(${imageZoom})`;
+  function applyImageTransform() {
+    if (!previewImage) {
+      return;
     }
 
+    previewImage.style.transform = `translate(${imagePositionX}px, ${imagePositionY}px) scale(${imageZoom})`;
+  }
 
-    /* ========================================================
+  /* ========================================================
        IMAGE PAN + MOUSE WHEEL ZOOM
     ======================================================== */
 
-    function setupImagePanAndZoom() {
+  function setupImagePanAndZoom() {
+    if (!previewWrapper) {
+      return;
+    }
 
-        if (
-            !previewWrapper
-        ) {
-            return;
-        }
-
-
-        /*
-            Prevent duplicate event
-            registration.
+    /*
+            Prevent duplicate event registration.
         */
 
-        if (
-            previewWrapper.dataset.zoomReady === "true"
-        ) {
-            return;
-        }
+    if (previewWrapper.dataset.zoomReady === "true") {
+      return;
+    }
 
+    previewWrapper.dataset.zoomReady = "true";
 
-        previewWrapper.dataset.zoomReady =
-            "true";
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            MOUSE WHEEL
         ---------------------------------------------------- */
 
-        previewWrapper.addEventListener(
-            "wheel",
-            function (event) {
+    previewWrapper.addEventListener(
+      "wheel",
+      function (event) {
+        event.preventDefault();
 
-                event.preventDefault();
+        const direction = event.deltaY < 0 ? 0.2 : -0.2;
 
+        changeZoom(direction);
+      },
+      {
+        passive: false,
+      },
+    );
 
-                const direction =
-                    event.deltaY < 0
-                        ? 0.2
-                        : -0.2;
-
-
-                changeZoom(
-                    direction
-                );
-            },
-            {
-                passive: false
-            }
-        );
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            MOUSE DOWN
         ---------------------------------------------------- */
 
-        previewWrapper.addEventListener(
-            "mousedown",
-            function (event) {
+    previewWrapper.addEventListener("mousedown", function (event) {
+      if (event.target.closest(".zoom-controls")) {
+        return;
+      }
 
-                /*
-                    Don't start dragging
-                    when clicking controls.
-                */
+      if (imageZoom <= 1) {
+        return;
+      }
 
-                if (
-                    event.target.closest(
-                        ".zoom-controls"
-                    )
-                ) {
-                    return;
-                }
+      isDragging = true;
 
+      dragStartX = event.clientX;
 
-                /*
-                    Only allow panning
-                    when zoomed.
-                */
+      dragStartY = event.clientY;
 
-                if (
-                    imageZoom <= 1
-                ) {
-                    return;
-                }
+      startPositionX = imagePositionX;
 
+      startPositionY = imagePositionY;
 
-                isDragging =
-                    true;
+      previewWrapper.style.cursor = "grabbing";
+    });
 
-
-                dragStartX =
-                    event.clientX;
-
-
-                dragStartY =
-                    event.clientY;
-
-
-                startPositionX =
-                    imagePositionX;
-
-
-                startPositionY =
-                    imagePositionY;
-
-
-                previewWrapper.style.cursor =
-                    "grabbing";
-            }
-        );
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            MOUSE MOVE
         ---------------------------------------------------- */
 
-        document.addEventListener(
-            "mousemove",
-            function (event) {
+    document.addEventListener("mousemove", function (event) {
+      if (!isDragging) {
+        return;
+      }
 
-                if (
-                    !isDragging
-                ) {
-                    return;
-                }
+      const deltaX = event.clientX - dragStartX;
 
+      const deltaY = event.clientY - dragStartY;
 
-                const deltaX =
-                    event.clientX -
-                    dragStartX;
+      imagePositionX = startPositionX + deltaX;
 
+      imagePositionY = startPositionY + deltaY;
 
-                const deltaY =
-                    event.clientY -
-                    dragStartY;
+      applyImageTransform();
+    });
 
-
-                imagePositionX =
-                    startPositionX +
-                    deltaX;
-
-
-                imagePositionY =
-                    startPositionY +
-                    deltaY;
-
-
-                applyImageTransform();
-            }
-        );
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            MOUSE UP
         ---------------------------------------------------- */
 
-        document.addEventListener(
-            "mouseup",
-            function () {
+    document.addEventListener("mouseup", function () {
+      if (!isDragging) {
+        return;
+      }
 
-                if (
-                    !isDragging
-                ) {
-                    return;
-                }
+      isDragging = false;
 
+      previewWrapper.style.cursor = imageZoom > 1 ? "grab" : "default";
+    });
 
-                isDragging =
-                    false;
-
-
-                previewWrapper.style.cursor =
-                    imageZoom > 1
-                        ? "grab"
-                        : "default";
-            }
-        );
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            TOUCH START
         ---------------------------------------------------- */
 
-        previewWrapper.addEventListener(
-            "touchstart",
-            function (event) {
+    previewWrapper.addEventListener(
+      "touchstart",
+      function (event) {
+        if (imageZoom <= 1 || event.touches.length !== 1) {
+          return;
+        }
 
-                if (
-                    imageZoom <= 1 ||
-                    event.touches.length !== 1
-                ) {
-                    return;
-                }
+        const touch = event.touches[0];
 
+        isDragging = true;
 
-                const touch =
-                    event.touches[0];
+        dragStartX = touch.clientX;
 
+        dragStartY = touch.clientY;
 
-                isDragging =
-                    true;
+        startPositionX = imagePositionX;
 
+        startPositionY = imagePositionY;
+      },
+      {
+        passive: true,
+      },
+    );
 
-                dragStartX =
-                    touch.clientX;
-
-
-                dragStartY =
-                    touch.clientY;
-
-
-                startPositionX =
-                    imagePositionX;
-
-
-                startPositionY =
-                    imagePositionY;
-            },
-            {
-                passive: true
-            }
-        );
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            TOUCH MOVE
         ---------------------------------------------------- */
 
-        previewWrapper.addEventListener(
-            "touchmove",
-            function (event) {
+    previewWrapper.addEventListener(
+      "touchmove",
+      function (event) {
+        if (!isDragging || event.touches.length !== 1) {
+          return;
+        }
 
-                if (
-                    !isDragging ||
-                    event.touches.length !== 1
-                ) {
-                    return;
-                }
+        event.preventDefault();
 
+        const touch = event.touches[0];
 
-                event.preventDefault();
+        imagePositionX = startPositionX + (touch.clientX - dragStartX);
 
+        imagePositionY = startPositionY + (touch.clientY - dragStartY);
 
-                const touch =
-                    event.touches[0];
+        applyImageTransform();
+      },
+      {
+        passive: false,
+      },
+    );
 
-
-                imagePositionX =
-                    startPositionX +
-                    (
-                        touch.clientX -
-                        dragStartX
-                    );
-
-
-                imagePositionY =
-                    startPositionY +
-                    (
-                        touch.clientY -
-                        dragStartY
-                    );
-
-
-                applyImageTransform();
-
-            },
-            {
-                passive: false
-            }
-        );
-
-
-        /* ----------------------------------------------------
+    /* ----------------------------------------------------
            TOUCH END
         ---------------------------------------------------- */
 
-        previewWrapper.addEventListener(
-            "touchend",
-            function () {
+    previewWrapper.addEventListener("touchend", function () {
+      isDragging = false;
+    });
+  }
 
-                isDragging =
-                    false;
-            }
-        );
-    }
-
-
-    /* ========================================================
+  /* ========================================================
        RESET SELECTED FILE
     ======================================================== */
 
-    function resetSelectedFile() {
+  function resetSelectedFile() {
+    selectedFile = null;
 
-        selectedFile =
-            null;
+    imageInput.value = "";
 
+    matchButton.disabled = true;
 
-        imageInput.value =
-            "";
-
-
-        matchButton.disabled =
-            true;
-
-
-        if (previewImage) {
-
-            previewImage.src =
-                "";
-        }
-
-
-        if (previewContainer) {
-
-            previewContainer.classList.add(
-                "hidden"
-            );
-        }
-
-
-        if (uploadContent) {
-
-            uploadContent.classList.remove(
-                "hidden"
-            );
-        }
-
-
-        resetImageView();
+    if (previewImage) {
+      previewImage.src = "";
     }
 
+    if (previewContainer) {
+      previewContainer.classList.add("hidden");
+    }
 
-    /* ========================================================
+    if (uploadContent) {
+      uploadContent.classList.remove("hidden");
+    }
+
+    resetImageView();
+  }
+
+  /* ========================================================
        FORMAT FILE SIZE
     ======================================================== */
 
-    function formatFileSize(bytes) {
-
-        if (
-            bytes === 0
-        ) {
-            return "0 Bytes";
-        }
-
-
-        const units = [
-            "Bytes",
-            "KB",
-            "MB",
-            "GB"
-        ];
-
-
-        const index =
-            Math.floor(
-                Math.log(bytes) /
-                Math.log(1024)
-            );
-
-
-        return (
-            parseFloat(
-                (
-                    bytes /
-                    Math.pow(
-                        1024,
-                        index
-                    )
-                ).toFixed(2)
-            )
-            +
-            " "
-            +
-            units[index]
-        );
+  function formatFileSize(bytes) {
+    if (bytes === 0) {
+      return "0 Bytes";
     }
 
+    const units = ["Bytes", "KB", "MB", "GB"];
 
-    /* ========================================================
+    const index = Math.floor(Math.log(bytes) / Math.log(1024));
+
+    return (
+      parseFloat((bytes / Math.pow(1024, index)).toFixed(2)) +
+      " " +
+      units[index]
+    );
+  }
+
+  /* ========================================================
        ESCAPE HTML
     ======================================================== */
 
-    function escapeHtml(value) {
-
-        if (
-            value === null ||
-            value === undefined
-        ) {
-            return "";
-        }
-
-
-        return String(value)
-            .replace(
-                /&/g,
-                "&amp;"
-            )
-            .replace(
-                /</g,
-                "&lt;"
-            )
-            .replace(
-                />/g,
-                "&gt;"
-            )
-            .replace(
-                /"/g,
-                "&quot;"
-            )
-            .replace(
-                /'/g,
-                "&#039;"
-            );
+  function escapeHtml(value) {
+    if (value === null || value === undefined) {
+      return "";
     }
 
+    return String(value)
+      .replace(/&/g, "&amp;")
 
-    /* ========================================================
+      .replace(/</g, "&lt;")
+
+      .replace(/>/g, "&gt;")
+
+      .replace(/"/g, "&quot;")
+
+      .replace(/'/g, "&#039;");
+  }
+
+  /* ========================================================
        ERROR
     ======================================================== */
 
-    function showError(message) {
-
-        if (!errorBox) {
-            return;
-        }
-
-
-        errorBox.textContent =
-            message;
-
-
-        errorBox.classList.remove(
-            "hidden"
-        );
+  function showError(message) {
+    if (!errorBox) {
+      return;
     }
 
+    errorBox.textContent = message;
 
-    function hideError() {
+    errorBox.classList.remove("hidden");
+  }
 
-        if (!errorBox) {
-            return;
-        }
-
-
-        errorBox.textContent =
-            "";
-
-
-        errorBox.classList.add(
-            "hidden"
-        );
+  function hideError() {
+    if (!errorBox) {
+      return;
     }
 
+    errorBox.textContent = "";
 
-    /* ========================================================
+    errorBox.classList.add("hidden");
+  }
+
+  /* ========================================================
        INITIAL STATE
     ======================================================== */
 
-    resetImageView();
+  resetImageView();
 
-    console.log(
-        "JewelMatch AI initialized successfully"
-    );
-
+  console.log("JewelMatch AI initialized successfully");
 });

@@ -1,71 +1,135 @@
-"""
-Configuration file for the Jewellery Matching AI project.
-
-Keeping paths in one place makes the project easier to maintain.
-"""
-
 import os
 
 
-# ---------------------------------------------------------
-# BACKEND DIRECTORY
-# ---------------------------------------------------------
+# ============================================================
+# PROJECT DIRECTORIES
+# ============================================================
 
-# Folder containing this config.py file
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_DIR = os.path.dirname(BASE_DIR)
 
 
-# ---------------------------------------------------------
-# CATALOGUE
-# ---------------------------------------------------------
+# ============================================================
+# DATABASE
+# ============================================================
 
-# Folder containing all jewellery catalogue images
+DATABASE_DIR = os.path.join(
+    BASE_DIR,
+    "database"
+)
+
+JEWELLERY_JSON = os.path.join(
+    DATABASE_DIR,
+    "jewellery.json"
+)
+
+
+# ============================================================
+# CATALOGUE DIRECTORIES
+# ============================================================
+
 CATALOGUE_DIR = os.path.join(
     BASE_DIR,
     "catalogue"
 )
 
+GOLD_CATALOGUE_DIR = os.path.join(
+    CATALOGUE_DIR,
+    "gold"
+)
 
-# ---------------------------------------------------------
-# DATABASE
-# ---------------------------------------------------------
-
-# JSON file containing jewellery information
-JEWELLERY_JSON = os.path.join(
-    BASE_DIR,
-    "database",
-    "jewellery.json"
+PROTOTYPE_CATALOGUE_DIR = os.path.join(
+    CATALOGUE_DIR,
+    "prototype"
 )
 
 
-# Numpy file containing catalogue embeddings
-EMBEDDINGS_FILE = os.path.join(
-    BASE_DIR,
-    "database",
-    "embeddings.npy"
+# ============================================================
+# EMBEDDING FILES
+# ============================================================
+
+GOLD_EMBEDDINGS_FILE = os.path.join(
+    DATABASE_DIR,
+    "gold_embeddings.npy"
+)
+
+PROTOTYPE_EMBEDDINGS_FILE = os.path.join(
+    DATABASE_DIR,
+    "prototype_embeddings.npy"
 )
 
 
-# ---------------------------------------------------------
+# ============================================================
+# SEGMENTED CATALOGUE
+# ============================================================
+
+SEGMENTED_CATALOGUE_DIR = os.path.join(
+    DATABASE_DIR,
+    "segmented_catalogue"
+)
+
+GOLD_SEGMENTED_DIR = os.path.join(
+    SEGMENTED_CATALOGUE_DIR,
+    "gold"
+)
+
+PROTOTYPE_SEGMENTED_DIR = os.path.join(
+    SEGMENTED_CATALOGUE_DIR,
+    "prototype"
+)
+
+
+# ============================================================
 # UPLOADS
-# ---------------------------------------------------------
+# ============================================================
 
-# Folder where uploaded query images will temporarily be stored
 UPLOAD_FOLDER = os.path.join(
     BASE_DIR,
     "uploads"
 )
 
 
-# ---------------------------------------------------------
+# ============================================================
 # MATCHING SETTINGS
-# ---------------------------------------------------------
+# ============================================================
 
-# Number of results returned to the frontend
 TOP_K = 5
 
+# Temporary starting threshold.
+# We will tune this using real Gold/Prototype pairs.
+MATCH_THRESHOLD = 0.15
 
-# Minimum similarity required to consider something a match.
-#
-# We will tune this later after testing with real jewellery.
-MATCH_THRESHOLD = 0.60
+
+# ============================================================
+# ALLOWED IMAGE TYPES
+# ============================================================
+
+ALLOWED_EXTENSIONS = {
+    "jpg",
+    "jpeg",
+    "png",
+    "webp",
+    "bmp"
+}
+
+
+# ============================================================
+# CREATE REQUIRED DIRECTORIES
+# ============================================================
+
+directories = [
+    DATABASE_DIR,
+    CATALOGUE_DIR,
+    GOLD_CATALOGUE_DIR,
+    PROTOTYPE_CATALOGUE_DIR,
+    SEGMENTED_CATALOGUE_DIR,
+    GOLD_SEGMENTED_DIR,
+    PROTOTYPE_SEGMENTED_DIR,
+    UPLOAD_FOLDER,
+]
+
+for directory in directories:
+    os.makedirs(
+        directory,
+        exist_ok=True
+    )

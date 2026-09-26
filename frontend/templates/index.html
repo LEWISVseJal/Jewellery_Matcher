@@ -1,54 +1,374 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>JewelMatch AI | Jewellery Visual Search</title>
 
-    <title>Jewellery AI Matcher</title>
+    <link rel="stylesheet"
+          href="{{ url_for('static', filename='css/style.css') }}">
+</head>
 
-    <link rel="stylesheet" href="/static/css/style.css" />
-  </head>
+<body>
 
-  <body>
-    <div class="container">
-      <h1>Jewellery AI Matcher</h1>
+<!-- ================= HEADER ================= -->
 
-      <p class="subtitle">Upload a jewellery image to find similar designs.</p>
+<header class="navbar">
 
-      <!-- Upload section -->
+    <div class="nav-container">
 
-      <div class="upload-box">
-        <input type="file" id="imageInput" accept="image/*" />
+        <a href="/" class="brand">
 
-        <button id="matchButton">Find Similar Jewellery</button>
-      </div>
+            <div class="brand-icon">
+                ✦
+            </div>
 
-      <!-- Preview -->
+            <div class="brand-content">
 
-      <div id="previewSection" class="hidden">
-        <h2>Uploaded Jewellery</h2>
+                <div class="brand-name">
+                    JewelMatch
+                </div>
 
-        <img id="previewImage" class="preview-image" alt="Uploaded jewellery" />
-      </div>
+                <div class="brand-ai">
+                    AI Jewellery Search
+                </div>
 
-      <!-- Loading message -->
+            </div>
 
-      <div id="loading" class="hidden">Finding similar jewellery...</div>
+        </a>
 
-      <!-- Results -->
+        <a href="/add-jewellery" class="add-button">
+            <span>＋</span>
+            Add Jewellery
+        </a>
 
-      <div id="resultsSection" class="hidden">
-        <h2>Matching Results</h2>
-
-        <div id="results"></div>
-      </div>
-
-      <!-- Error -->
-
-      <div id="error" class="error hidden"></div>
     </div>
 
-    <script src="/static/js/app.js"></script>
-  </body>
+</header>
+
+
+<!-- ================= MAIN ================= -->
+
+<main class="page">
+
+    <!-- PAGE HEADING -->
+
+    <section class="page-heading">
+
+        <div class="eyebrow">
+            AI Powered · Visual Search
+        </div>
+
+        <h1>
+            Find your perfect jewellery match
+        </h1>
+
+        <p>
+            Upload a jewellery image and discover visually similar
+            designs from your catalogue.
+        </p>
+
+    </section>
+
+
+    <!-- ================= SEARCH CARD ================= -->
+
+    <section class="search-card">
+
+        <div class="search-card-inner">
+
+            <!-- Upload area -->
+
+            <div
+                id="uploadArea"
+                class="upload-area"
+            >
+
+                <input
+                    type="file"
+                    id="imageInput"
+                    name="image"
+                    accept=".jpg,.jpeg,.png,.webp,.bmp,image/jpeg,image/png,image/webp,image/bmp"
+                    hidden
+                >
+
+
+                <!-- Empty state -->
+
+                <div
+                    id="uploadContent"
+                    class="upload-content"
+                >
+
+                    <div class="upload-icon">
+                        ↑
+                    </div>
+
+                    <h2>
+                        Upload jewellery image
+                    </h2>
+
+                    <p class="upload-description">
+                        Drag & drop your image here
+                        <br>
+                        or browse from your device
+                    </p>
+
+                    <p class="supported-formats">
+                        JPG, JPEG, PNG, WEBP or BMP
+                    </p>
+
+                    <button
+                        type="button"
+                        id="browseButton"
+                        class="browse-button"
+                    >
+                        Browse Image
+                    </button>
+
+                </div>
+
+
+                <!-- Preview state -->
+
+                <div
+                    id="previewContainer"
+                    class="preview-container hidden"
+                >
+
+                    <div class="preview-image-wrapper">
+
+                        <img
+                            id="previewImage"
+                            src=""
+                            alt="Selected jewellery image"
+                        >
+
+                    </div>
+
+                    <div class="preview-details">
+
+                        <div
+                            id="fileName"
+                            class="file-name"
+                        >
+                            Image
+                        </div>
+
+                        <div
+                            id="fileSize"
+                            class="file-size"
+                        >
+                            0 KB
+                        </div>
+
+                    </div>
+
+                    <button
+                        type="button"
+                        id="changeImageButton"
+                        class="change-image-button"
+                    >
+                        Change Image
+                    </button>
+
+                </div>
+
+            </div>
+
+
+            <!-- Search button -->
+
+            <div class="match-action">
+
+                <button
+                    type="button"
+                    id="matchButton"
+                    class="match-button"
+                    disabled
+                >
+
+                    <span id="matchButtonText">
+                        Find Similar Jewellery
+                    </span>
+
+                    <span class="button-arrow">
+                        →
+                    </span>
+
+                    <span
+                        id="matchSpinner"
+                        class="spinner hidden"
+                    ></span>
+
+                </button>
+
+            </div>
+
+
+            <!-- Error -->
+
+            <div
+                id="error"
+                class="message error-message hidden"
+            ></div>
+
+
+            <!-- Loading -->
+
+            <div
+                id="loading"
+                class="loading-box hidden"
+            >
+
+                <div class="loading-spinner"></div>
+
+                <div>
+
+                    <h3>
+                        Finding similar jewellery...
+                    </h3>
+
+                    <p>
+                        Please wait while we analyse the image.
+                    </p>
+
+                </div>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- ================= HOW IT WORKS ================= -->
+
+    <section class="steps-section">
+
+        <div class="step-card">
+
+            <div class="step-number">
+                01
+            </div>
+
+            <div class="step-content">
+
+                <h3>
+                    Upload
+                </h3>
+
+                <p>
+                    Add a clear image of the jewellery design.
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <div class="step-card">
+
+            <div class="step-number">
+                02
+            </div>
+
+            <div class="step-content">
+
+                <h3>
+                    Analyse
+                </h3>
+
+                <p>
+                    AI analyses the shape, pattern and design.
+                </p>
+
+            </div>
+
+        </div>
+
+
+        <div class="step-card">
+
+            <div class="step-number">
+                03
+            </div>
+
+            <div class="step-content">
+
+                <h3>
+                    Discover
+                </h3>
+
+                <p>
+                    View visually similar jewellery from the catalogue.
+                </p>
+
+            </div>
+
+        </div>
+
+    </section>
+
+
+    <!-- ================= RESULTS ================= -->
+
+    <section
+        id="resultsSection"
+        class="results-section hidden"
+    >
+
+        <div class="results-header">
+
+            <div>
+
+                <div class="eyebrow">
+                    AI Search Results
+                </div>
+
+                <h2>
+                    Similar Jewellery
+                </h2>
+
+                <p>
+                    Matching designs from your catalogue
+                </p>
+
+            </div>
+
+            <div
+                id="bestMatchBadge"
+                class="best-match-badge"
+            ></div>
+
+        </div>
+
+
+        <div
+            id="results"
+            class="results-grid"
+        ></div>
+
+    </section>
+
+</main>
+
+
+<!-- ================= FOOTER ================= -->
+
+<footer class="main-footer">
+
+    <div class="footer-line"></div>
+
+    <p>
+        JewelMatch AI · Jewellery Visual Search
+    </p>
+
+</footer>
+
+
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+</body>
 </html>

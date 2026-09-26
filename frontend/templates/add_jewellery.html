@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+
+    <meta charset="UTF-8">
+
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
+
+    <title>Add Jewellery | JewelMatch AI</title>
+
+    <link
+        rel="stylesheet"
+        href="{{ url_for('static', filename='css/add_jewellery.css') }}"
+    >
+
+</head>
+
+
+<body>
+
+
+    <!-- =====================================================
+         HEADER
+    ====================================================== -->
+
+    <header class="main-header">
+
+        <div class="header-container">
+
+
+            <!-- BRAND -->
+
+            <a
+                href="/"
+                class="brand"
+            >
+
+                <div class="brand-icon">
+                    ✦
+                </div>
+
+                <div class="brand-text">
+
+                    <div class="brand-name">
+                        JewelMatch
+                    </div>
+
+                    <div class="brand-ai">
+                        AI
+                    </div>
+
+                </div>
+
+            </a>
+
+
+            <!-- NAVIGATION -->
+
+            <nav class="main-nav">
+
+                <a
+                    href="/"
+                    class="nav-link"
+                >
+                    Search
+                </a>
+
+
+                <a
+                    href="/add-jewellery"
+                    class="add-jewellery-button active"
+                >
+                    <span>＋</span>
+                    Add Jewellery
+                </a>
+
+            </nav>
+
+        </div>
+
+    </header>
+
+
+
+    <!-- =====================================================
+         MAIN
+    ====================================================== -->
+
+    <main class="main-container">
+
+
+        <!-- =================================================
+             PAGE HERO
+        ================================================== -->
+
+        <section class="hero-section">
+
+            <div class="hero-badge">
+                ✦ &nbsp; Catalogue management
+            </div>
+
+
+            <h1>
+                Add new
+                <span>jewellery.</span>
+            </h1>
+
+
+            <p>
+                Add a jewellery design to your catalogue.
+                Once processed, it can be used for visual matching.
+            </p>
+
+        </section>
+
+
+
+        <!-- =================================================
+             FORM CARD
+        ================================================== -->
+
+        <section class="form-card">
+
+
+            <!-- =================================================
+                 IMAGE COLUMN
+            ================================================= -->
+
+            <div class="image-column">
+
+                <div class="column-heading">
+
+                    <span class="column-number">
+                        01
+                    </span>
+
+                    <div>
+
+                        <span class="column-label">
+                            Jewellery image
+                        </span>
+
+                        <h2>
+                            Upload image
+                        </h2>
+
+                    </div>
+
+                </div>
+
+
+                <!-- IMAGE DROP ZONE -->
+
+                <div
+                    class="image-drop-zone"
+                    id="imageDropZone"
+                >
+
+
+                    <!-- Hidden input -->
+
+                    <input
+                        type="file"
+                        id="jewelleryImage"
+                        accept="image/jpeg,image/png,image/webp,image/bmp"
+                        hidden
+                    >
+
+
+                    <!-- Empty state -->
+
+                    <div
+                        id="imageUploadContent"
+                        class="image-upload-content"
+                    >
+
+                        <div class="image-icon">
+                            ↥
+                        </div>
+
+
+                        <h3>
+                            Upload jewellery image
+                        </h3>
+
+
+                        <p>
+                            Drag &amp; drop your image here
+                        </p>
+
+
+                        <span class="upload-or">
+                            or
+                        </span>
+
+
+                        <button
+                            type="button"
+                            id="chooseImageButton"
+                            class="choose-button"
+                        >
+                            Choose Image
+                        </button>
+
+
+                        <small>
+                            JPG, PNG, WEBP or BMP
+                        </small>
+
+                    </div>
+
+
+
+                    <!-- Image preview -->
+
+                    <div
+                        id="imagePreviewContainer"
+                        class="image-preview-container hidden"
+                    >
+
+                        <div class="preview-frame">
+
+                            <img
+                                id="imagePreview"
+                                src=""
+                                alt="Jewellery preview"
+                            >
+
+                        </div>
+
+
+                        <button
+                            type="button"
+                            id="removeJewelleryImage"
+                            class="remove-button"
+                            aria-label="Remove image"
+                        >
+                            ×
+                        </button>
+
+                    </div>
+
+                </div>
+
+
+                <div
+                    id="imageName"
+                    class="image-name"
+                ></div>
+
+
+                <div class="image-note">
+
+                    <span>✦</span>
+
+                    <p>
+                        Use a clear image where the jewellery
+                        design is visible.
+                    </p>
+
+                </div>
+
+            </div>
+
+
+
+            <!-- =================================================
+                 DETAILS COLUMN
+            ================================================== -->
+
+            <div class="details-column">
+
+
+                <div class="column-heading">
+
+                    <span class="column-number">
+                        02
+                    </span>
+
+                    <div>
+
+                        <span class="column-label">
+                            Catalogue information
+                        </span>
+
+                        <h2>
+                            Jewellery details
+                        </h2>
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- NAME -->
+
+                <div class="form-group">
+
+                    <label for="jewelleryName">
+                        Jewellery Name
+                    </label>
+
+                    <input
+                        type="text"
+                        id="jewelleryName"
+                        placeholder="e.g. Classic Gold Ring"
+                    >
+
+                </div>
+
+
+
+                <!-- GENDER + COLLECTION -->
+
+                <div class="form-row">
+
+
+                    <div class="form-group">
+
+                        <label for="gender">
+                            Gender
+                        </label>
+
+                        <select id="gender">
+
+                            <option value="">
+                                Select gender
+                            </option>
+
+                            <option value="Female">
+                                Female
+                            </option>
+
+                            <option value="Male">
+                                Male
+                            </option>
+
+                            <option value="Unisex">
+                                Unisex
+                            </option>
+
+                        </select>
+
+                    </div>
+
+
+
+                    <div class="form-group">
+
+                        <label for="collection">
+                            Collection
+                        </label>
+
+                        <select id="collection">
+
+                            <option value="">
+                                Select collection
+                            </option>
+
+                            <option value="Gold">
+                                Gold
+                            </option>
+
+                            <option value="Prototype">
+                                Prototype
+                            </option>
+
+                        </select>
+
+                    </div>
+
+                </div>
+
+
+
+                <!-- TYPE -->
+
+                <div class="form-group">
+
+                    <label for="jewelleryType">
+                        Jewellery Type
+                    </label>
+
+                    <select id="jewelleryType">
+
+                        <option value="">
+                            Select jewellery type
+                        </option>
+
+                        <option value="Ring">
+                            Ring
+                        </option>
+
+                        <option value="Necklace">
+                            Necklace
+                        </option>
+
+                        <option value="Earrings">
+                            Earrings
+                        </option>
+
+                        <option value="Bracelet">
+                            Bracelet
+                        </option>
+
+                        <option value="Bangle">
+                            Bangle
+                        </option>
+
+                        <option value="Pendant">
+                            Pendant
+                        </option>
+
+                        <option value="Chain">
+                            Chain
+                        </option>
+
+                        <option value="Anklet">
+                            Anklet
+                        </option>
+
+                        <option value="Nose Pin">
+                            Nose Pin
+                        </option>
+
+                        <option value="Other">
+                            Other
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+
+                <!-- SUBTYPE -->
+
+                <div class="form-group">
+
+                    <label for="subtype">
+                        Subtype
+                    </label>
+
+                    <select id="subtype">
+
+                        <option value="">
+                            Select subtype
+                        </option>
+
+                    </select>
+
+                </div>
+
+
+
+                <!-- DESCRIPTION -->
+
+                <div class="form-group">
+
+                    <label for="description">
+                        Description
+                    </label>
+
+                    <textarea
+                        id="description"
+                        rows="4"
+                        placeholder="Describe the jewellery design..."
+                    ></textarea>
+
+                </div>
+
+
+
+                <!-- STATUS -->
+
+                <div
+                    id="formStatus"
+                    class="form-status hidden"
+                ></div>
+
+
+
+                <!-- SUBMIT -->
+
+                <button
+                    type="button"
+                    id="addJewelleryButton"
+                    class="submit-button"
+                >
+
+                    <span>
+                        ✦
+                    </span>
+
+                    <span>
+                        Add Jewellery
+                    </span>
+
+                    <strong>
+                        →
+                    </strong>
+
+                </button>
+
+            </div>
+
+        </section>
+
+
+
+        <!-- =================================================
+             PROCESS SECTION
+        ================================================== -->
+
+        <section class="process-section">
+
+
+            <div class="process-heading">
+
+                <span>
+                    Simple &amp; fast
+                </span>
+
+                <h2>
+                    From image to catalogue
+                </h2>
+
+            </div>
+
+
+            <div class="process-grid">
+
+
+                <!-- STEP 1 -->
+
+                <div class="process-card">
+
+                    <div class="process-top">
+
+                        <span class="process-icon">
+                            ↑
+                        </span>
+
+                        <span class="process-number">
+                            01
+                        </span>
+
+                    </div>
+
+                    <h3>
+                        Upload
+                    </h3>
+
+                    <p>
+                        Add a clear image of the jewellery
+                        design.
+                    </p>
+
+                </div>
+
+
+
+                <!-- STEP 2 -->
+
+                <div class="process-card">
+
+                    <div class="process-top">
+
+                        <span class="process-icon">
+                            ✦
+                        </span>
+
+                        <span class="process-number">
+                            02
+                        </span>
+
+                    </div>
+
+                    <h3>
+                        Add details
+                    </h3>
+
+                    <p>
+                        Provide the basic catalogue information
+                        for the design.
+                    </p>
+
+                </div>
+
+
+
+                <!-- STEP 3 -->
+
+                <div class="process-card">
+
+                    <div class="process-top">
+
+                        <span class="process-icon">
+                            ✓
+                        </span>
+
+                        <span class="process-number">
+                            03
+                        </span>
+
+                    </div>
+
+                    <h3>
+                        AI processing
+                    </h3>
+
+                    <p>
+                        The jewellery is processed and prepared
+                        for visual matching.
+                    </p>
+
+                </div>
+
+            </div>
+
+        </section>
+
+    </main>
+
+
+
+    <!-- =====================================================
+         FOOTER
+    ====================================================== -->
+
+    <footer class="main-footer">
+
+        <div class="footer-inner">
+
+            <div>
+
+                <strong>
+                    JewelMatch AI
+                </strong>
+
+                <span>
+                    Visual Jewellery Search
+                </span>
+
+            </div>
+
+
+            <div>
+                © 2026 JewelMatch AI
+            </div>
+
+        </div>
+
+    </footer>
+
+
+
+    <!-- =====================================================
+         JAVASCRIPT
+    ====================================================== -->
+
+    <script
+        src="{{ url_for('static', filename='js/add_jewellery.js') }}"
+    ></script>
+
+</body>
+
+</html>

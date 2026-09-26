@@ -1,32 +1,59 @@
 # Python
 __pycache__/
 *.py[cod]
+*.pyo
 
-# Virtual environments
+# Virtual environment
+.venv/
 venv/
 env/
-.venv/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# AI model caches
+model_cache/
+.cache/
+huggingface/
+transformers/
+sentence_transformers/
 
 # Generated embeddings
-backend/database/embeddings.npy
+backend/database/*.npy
 
-# User uploaded images
+# Generated segmented catalogue
+backend/database/segmented_catalogue/
+
+# Uploaded images during runtime
 backend/uploads/*
 !backend/uploads/.gitkeep
 
-# Hugging Face model/cache
-huggingface_cache/
-.cache/
-
-# Environment variables
-.env
-
-# VS Code
-.vscode/
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
+# Temporary/debug files
 *.log
+*.tmp
+*.temp
+backend/**/debug/
+backend/**/debug_*
+backend/**/screenshots/
+
+# Old backup catalogue
+backup_old_catalogue/
+
+# Original image collection
+images_G_P/
+
+# Windows files
+Thumbs.db
+desktop.ini
+*.lnk
+
+# IDE
+.vscode/
+.idea/
+
+# Python tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/

@@ -1,231 +1,132 @@
-"""
-============================================================
-JEWELLERY AI MATCHING
-Image Embedding Module
-============================================================
-
-Version 1:
-- No segmentation
-- No model training
-- Uses pretrained DINOv2
-- Model is loaded directly from E: drive
-- Prevents Hugging Face from using the full C: drive
-============================================================
-"""
-
 import os
-
-import torch
+import gc
 import numpy as np
+import torch
 
-from PIL import Image
-
-from transformers import (
-    AutoImageProcessor,
-    AutoModel
-)
+from PIL import Image, ImageOps, ImageFilter
+from transformers import AutoImageProcessor, AutoModel
 
 
 # ============================================================
-# MODEL LOCATION
+# LOCAL MODEL CACHE
+# ============================================================
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+PROJECT_DIR = os.path.dirname(BASE_DIR)
+
+HF_CACHE = os.path.join(
+    PROJECT_DIR,
+    "model_cache",
+    "huggingface"
+)
+
+os.environ["HF_HOME"] = HF_CACHE
+os.environ["HF_HUB_CACHE"] = os.path.join(HF_CACHE, "hub")
+
+
+# ============================================================
+# MODEL
 # ============================================================
 
 MODEL_NAME = "facebook/dinov2-base"
 
-# IMPORTANT:
-# The model has already been downloaded to E:.
-# We will explicitly use the local Hugging Face snapshot.
-
-MODEL_CACHE_DIR = (
-    r"E:\huggingface_cache"
-    r"\hub\models--facebook--dinov2-base"
-)
-
-
-# ============================================================
-# FIND MODEL SNAPSHOT
-# ============================================================
-
-SNAPSHOT_DIR = os.path.join(
-    MODEL_CACHE_DIR,
-    "snapshots"
-)
-
-
-def find_model_snapshot():
-    """
-    Find the downloaded DINOv2 model snapshot.
-    """
-
-    if not os.path.exists(SNAPSHOT_DIR):
-
-        raise FileNotFoundError(
-            "DINOv2 model cache was not found.\n\n"
-            f"Expected location:\n{SNAPSHOT_DIR}\n\n"
-            "Please check the E:\\huggingface_cache folder."
-        )
-
-    snapshot_folders = [
-        folder
-        for folder in os.listdir(
-            SNAPSHOT_DIR
-        )
-        if os.path.isdir(
-            os.path.join(
-                SNAPSHOT_DIR,
-                folder
-            )
-        )
-    ]
-
-    if not snapshot_folders:
-
-        raise FileNotFoundError(
-            "No DINOv2 snapshot was found in:\n"
-            f"{SNAPSHOT_DIR}"
-        )
-
-    # Use the first available snapshot.
-    snapshot_path = os.path.join(
-        SNAPSHOT_DIR,
-        snapshot_folders[0]
-    )
-
-    return snapshot_path
-
-
-MODEL_PATH = find_model_snapshot()
-
-print()
-print("=" * 60)
-print("DINOv2 LOCAL MODEL")
-print("=" * 60)
-
-print(
-    "Model:",
-    MODEL_NAME
-)
-
-print(
-    "Local model path:"
-)
-
-print(
-    MODEL_PATH
-)
-
-
-# ============================================================
-# DEVICE
-# ============================================================
-
 DEVICE = torch.device(
-    "cuda"
-    if torch.cuda.is_available()
-    else "cpu"
+    "cuda" if torch.cuda.is_available() else "cpu"
 )
 
-print(
-    "Embedding device:",
-    DEVICE
-)
+print(f"[EMBEDDING] Device: {DEVICE}")
+print(f"[EMBEDDING] Model: {MODEL_NAME}")
 
 
-# ============================================================
-# LOAD PROCESSOR
-# ============================================================
-
-print()
-print(
-    "Loading image processor..."
-)
-
-processor = AutoImageProcessor.from_pretrained(
-    MODEL_PATH,
-    local_files_only=True
-)
-
-print(
-    "Image processor loaded."
-)
+_processor = None
+_model = None
 
 
-# ============================================================
-# LOAD MODEL
-# ============================================================
+def _load_model():
+    global _processor
+    global _model
 
-print()
-print(
-    "Loading DINOv2 model..."
-)
+    if _processor is None or _model is None:
 
-model = AutoModel.from_pretrained(
-    MODEL_PATH,
-    local_files_only=True
-)
+        print("[EMBEDDING] Loading DINOv2...")
 
-model.to(
-    DEVICE
-)
-
-model.eval()
-
-print(
-    "DINOv2 model loaded successfully."
-)
-
-print(
-    "=" * 60
-)
-
-
-# ============================================================
-# LOAD IMAGE
-# ============================================================
-
-def load_image(image_path):
-    """
-    Load an image and convert it to RGB.
-    """
-
-    if not os.path.exists(image_path):
-
-        raise FileNotFoundError(
-            f"Image not found:\n{image_path}"
+        _processor = AutoImageProcessor.from_pretrained(
+            MODEL_NAME,
+            cache_dir=HF_CACHE,
+            local_files_only=False
         )
 
-    image = Image.open(
-        image_path
-    ).convert(
-        "RGB"
+        _model = AutoModel.from_pretrained(
+            MODEL_NAME,
+            cache_dir=HF_CACHE,
+            local_files_only=False
+        )
+
+        _model.to(DEVICE)
+        _model.eval()
+
+        print("[EMBEDDING] DINOv2 loaded.")
+
+    return _processor, _model
+
+
+# ============================================================
+# COLOUR-INVARIANT IMAGE PREPARATION
+# ============================================================
+
+def prepare_design_image(image_path):
+    """
+    Converts jewellery image into a colour-invariant representation.
+
+    The image is:
+        1. Loaded as RGB
+        2. Converted to grayscale
+        3. Contrast enhanced
+        4. Converted back to RGB
+
+    DINOv2 therefore sees design/structure much more strongly
+    than the original material colour.
+    """
+
+    image = Image.open(image_path).convert("RGB")
+
+    # Convert to grayscale
+    image = ImageOps.grayscale(image)
+
+    # Improve contrast
+    image = ImageOps.autocontrast(image)
+
+    # Slight sharpening
+    image = image.filter(ImageFilter.SHARPEN)
+
+    # DINO expects 3 channels
+    image = Image.merge(
+        "RGB",
+        (image, image, image)
     )
 
     return image
 
 
 # ============================================================
-# CREATE EMBEDDING
+# DINO EMBEDDING
 # ============================================================
 
-def get_embedding(image_path):
+def create_embedding(image_path):
     """
-    Convert a jewellery image into a normalized
-    DINOv2 embedding.
+    Creates a normalized 768-dimensional DINOv2 embedding.
 
-    Parameters
-    ----------
-    image_path : str
-        Path to the jewellery image.
-
-    Returns
-    -------
-    numpy.ndarray
-        Normalized 768-dimensional embedding.
+    IMPORTANT:
+    The image is converted to grayscale before embedding.
     """
 
-    image = load_image(
-        image_path
-    )
+    print()
+    print("Creating colour-invariant embedding:")
+    print(image_path)
+
+    processor, model = _load_model()
+
+    image = prepare_design_image(image_path)
 
     inputs = processor(
         images=image,
@@ -239,27 +140,40 @@ def get_embedding(image_path):
 
     with torch.no_grad():
 
-        outputs = model(
-            **inputs
+        outputs = model(**inputs)
+
+        # CLS token
+        embedding = outputs.last_hidden_state[:, 0, :]
+
+        # L2 normalize
+        embedding = torch.nn.functional.normalize(
+            embedding,
+            p=2,
+            dim=1
         )
 
-        # CLS token embedding
-        embedding = (
-            outputs
-            .last_hidden_state[:, 0, :]
-        )
-
-    # Normalize embedding
-    embedding = torch.nn.functional.normalize(
-        embedding,
-        p=2,
-        dim=1
+    embedding = embedding.cpu().numpy()[0].astype(
+        np.float32
     )
 
-    embedding = (
-        embedding
-        .cpu()
-        .numpy()[0]
-    )
+    print("Colour-invariant embedding created.")
+    print(f"Shape: {embedding.shape}")
+
+    # Cleanup
+    del inputs
+    del outputs
+
+    gc.collect()
+
+    if DEVICE.type == "cuda":
+        torch.cuda.empty_cache()
 
     return embedding
+
+
+# ============================================================
+# COMPATIBILITY ALIAS
+# ============================================================
+
+def get_embedding(image_path):
+    return create_embedding(image_path)

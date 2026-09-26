@@ -1,333 +1,291 @@
-"""
-============================================================
-JEWELLERY AI MATCHING
-Create Catalogue Embeddings
-============================================================
-
-Purpose:
-    This script reads all jewellery records from jewellery.json,
-    creates an embedding for each catalogue image, and saves
-    the embeddings into embeddings.npy.
-
-Run this script from the backend folder:
-
-    python scripts/create_embeddings.py
-============================================================
-"""
-
 import os
 import sys
 import json
-
+import gc
 import numpy as np
 
-
 # ============================================================
-# STEP 1: FIND THE BACKEND FOLDER
+# PROJECT ROOT
 # ============================================================
 
-# __file__ points to:
-#
-# backend/scripts/create_embeddings.py
-#
-# dirname(__file__) gives:
-#
-# backend/scripts
-#
-# Going one level up gives:
-#
-# backend
-
-BACKEND_DIR = os.path.dirname(
-    os.path.dirname(
-        os.path.abspath(__file__)
-    )
+SCRIPT_DIR = os.path.dirname(
+    os.path.abspath(__file__)
 )
 
+BACKEND_DIR = os.path.dirname(SCRIPT_DIR)
+PROJECT_DIR = os.path.dirname(BACKEND_DIR)
 
-# ============================================================
-# STEP 2: ADD BACKEND TO PYTHON PATH
-# ============================================================
-
-# This allows Python to find folders such as:
-#
-# backend/services
-# backend/config.py
-
-if BACKEND_DIR not in sys.path:
-
-    sys.path.insert(
-        0,
-        BACKEND_DIR
-    )
+if PROJECT_DIR not in sys.path:
+    sys.path.insert(0, PROJECT_DIR)
 
 
 # ============================================================
-# STEP 3: IMPORT OUR PROJECT FILES
+# PROJECT IMPORTS
 # ============================================================
 
-from services.embedding import get_embedding
-
-from config import (
-    CATALOGUE_DIR,
+from backend.config import (
     JEWELLERY_JSON,
-    EMBEDDINGS_FILE
+    GOLD_CATALOGUE_DIR,
+    PROTOTYPE_CATALOGUE_DIR,
+    GOLD_EMBEDDINGS_FILE,
+    PROTOTYPE_EMBEDDINGS_FILE,
+    GOLD_SEGMENTED_DIR,
+    PROTOTYPE_SEGMENTED_DIR
 )
 
+from backend.services.embedding import create_embedding
+from backend.services.segmentation import segment_jewellery
+
 
 # ============================================================
-# MAIN FUNCTION
+# HELPERS
 # ============================================================
 
-def main():
+IMAGE_EXTENSIONS = {
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".bmp"
+}
 
-    print()
-    print("=" * 60)
-    print("JEWELLERY AI - CREATE EMBEDDINGS")
-    print("=" * 60)
 
+def get_image_files(folder):
+    if not os.path.exists(folder):
+        return []
 
-    # ========================================================
-    # STEP 4: CHECK JEWELLERY JSON
-    # ========================================================
+    files = []
 
-    if not os.path.exists(JEWELLERY_JSON):
+    for filename in sorted(os.listdir(folder)):
 
-        raise FileNotFoundError(
-            f"Jewellery JSON file not found:\n"
-            f"{JEWELLERY_JSON}"
+        full_path = os.path.join(
+            folder,
+            filename
         )
 
+        if not os.path.isfile(full_path):
+            continue
 
-    # ========================================================
-    # STEP 5: LOAD JEWELLERY JSON
-    # ========================================================
+        extension = os.path.splitext(
+            filename
+        )[1].lower()
+
+        if extension in IMAGE_EXTENSIONS:
+            files.append(filename)
+
+    return files
+
+
+def load_catalogue():
+    if not os.path.exists(JEWELLERY_JSON):
+        return []
 
     with open(
         JEWELLERY_JSON,
         "r",
         encoding="utf-8"
     ) as file:
+        data = json.load(file)
 
-        jewellery = json.load(file)
+    if not isinstance(data, list):
+        raise ValueError(
+            "jewellery.json must contain a JSON list."
+        )
+
+    return data
 
 
-    print()
-    print(
-        "Jewellery records found:",
-        len(jewellery)
+def save_embeddings(path, embeddings):
+    if embeddings:
+
+        matrix = np.vstack(
+            embeddings
+        ).astype(np.float32)
+
+    else:
+
+        matrix = np.empty(
+            (0, 768),
+            dtype=np.float32
+        )
+
+    np.save(
+        path,
+        matrix
     )
 
+    print()
+    print("Saved embeddings:")
+    print(path)
+    print("Shape:", matrix.shape)
 
-    # ========================================================
-    # STEP 6: PREPARE EMBEDDING LIST
-    # ========================================================
+
+# ============================================================
+# PROCESS COLLECTION
+# ============================================================
+
+def process_collection(
+    collection_name,
+    catalogue_dir,
+    segmented_dir,
+    output_file
+):
+
+    print()
+    print("=" * 70)
+    print(f"PROCESSING {collection_name.upper()} COLLECTION")
+    print("=" * 70)
+
+    os.makedirs(
+        segmented_dir,
+        exist_ok=True
+    )
+
+    image_files = get_image_files(
+        catalogue_dir
+    )
+
+    print(
+        f"Images found: {len(image_files)}"
+    )
 
     embeddings = []
 
-    valid_items = []
+    for index, filename in enumerate(
+        image_files,
+        start=1
+    ):
 
+        source_path = os.path.join(
+            catalogue_dir,
+            filename
+        )
 
-    # ========================================================
-    # STEP 7: PROCESS EACH JEWELLERY IMAGE
-    # ========================================================
+        segmented_filename = (
+            os.path.splitext(filename)[0]
+            + ".jpg"
+        )
 
-    for item in jewellery:
-
-        jewellery_id = item["id"]
-
-        image_name = item["image"]
-
+        segmented_path = os.path.join(
+            segmented_dir,
+            segmented_filename
+        )
 
         print()
-        print("-" * 60)
-
         print(
-            "Processing:",
-            jewellery_id
+            f"[{index}/{len(image_files)}] "
+            f"{filename}"
         )
 
-        print(
-            "Image:",
-            image_name
-        )
-
-
         # ----------------------------------------------------
-        # Create complete image path
-        # ----------------------------------------------------
-
-        image_path = os.path.join(
-            CATALOGUE_DIR,
-            image_name
-        )
-
-
-        print(
-            "Path:",
-            image_path
-        )
-
-
-        # ----------------------------------------------------
-        # Check whether image exists
-        # ----------------------------------------------------
-
-        if not os.path.exists(image_path):
-
-            print(
-                "WARNING: Image not found."
-            )
-
-            print(
-                "Skipping:",
-                image_name
-            )
-
-            continue
-
-
-        # ----------------------------------------------------
-        # Create embedding
+        # SEGMENT
         # ----------------------------------------------------
 
         try:
 
-            embedding = get_embedding(
-                image_path
+            segment_jewellery(
+                source_path,
+                segmented_path
             )
 
+        except Exception as error:
 
-            # Add embedding to list
+            print(
+                "[ERROR] Segmentation failed:"
+            )
+            print(error)
+
+            # Fallback to original image
+            segmented_path = source_path
+
+        # ----------------------------------------------------
+        # EMBEDDING
+        # ----------------------------------------------------
+
+        try:
+
+            embedding = create_embedding(
+                segmented_path
+            )
+
             embeddings.append(
                 embedding
             )
 
-
-            # Keep the metadata in exactly the same
-            # order as the embeddings.
-            valid_items.append(
-                item
-            )
-
-
-            print(
-                "Embedding created successfully."
-            )
-
-            print(
-                "Embedding shape:",
-                embedding.shape
-            )
-
-
         except Exception as error:
 
-            print()
             print(
-                "ERROR processing:",
-                image_name
+                "[ERROR] Embedding failed:"
             )
+            print(error)
 
-            print(
-                "Error:",
-                error
-            )
+            continue
 
-            print(
-                "Skipping this image."
-            )
+        gc.collect()
 
+    # --------------------------------------------------------
+    # SAVE
+    # --------------------------------------------------------
 
-    # ========================================================
-    # STEP 8: MAKE SURE WE HAVE EMBEDDINGS
-    # ========================================================
-
-    if len(embeddings) == 0:
-
-        raise RuntimeError(
-            "No embeddings were created.\n"
-            "Please check your catalogue images and "
-            "jewellery.json."
-        )
-
-
-    # ========================================================
-    # STEP 9: CONVERT TO NUMPY ARRAY
-    # ========================================================
-
-    embeddings = np.array(
-        embeddings,
-        dtype=np.float32
-    )
-
-
-    # ========================================================
-    # STEP 10: SAVE EMBEDDINGS
-    # ========================================================
-
-    np.save(
-        EMBEDDINGS_FILE,
+    save_embeddings(
+        output_file,
         embeddings
     )
 
-
-    # ========================================================
-    # STEP 11: UPDATE JSON
-    # ========================================================
-
-    # Only keep records for images that actually
-    # received an embedding.
-
-    with open(
-        JEWELLERY_JSON,
-        "w",
-        encoding="utf-8"
-    ) as file:
-
-        json.dump(
-            valid_items,
-            file,
-            indent=4
-        )
-
-
-    # ========================================================
-    # STEP 12: FINAL RESULT
-    # ========================================================
-
-    print()
-    print("=" * 60)
-    print("EMBEDDING DATABASE CREATED SUCCESSFULLY")
-    print("=" * 60)
-
-    print(
-        "Jewellery processed:",
-        len(embeddings)
-    )
-
-    print(
-        "Embedding matrix shape:",
-        embeddings.shape
-    )
-
-    print()
-    print(
-        "Embeddings saved to:"
-    )
-
-    print(
-        EMBEDDINGS_FILE
-    )
-
-    print()
-    print("=" * 60)
+    return len(embeddings)
 
 
 # ============================================================
-# PROGRAM START
+# MAIN
 # ============================================================
+
+def main():
+
+    print()
+    print("=" * 70)
+    print("JEWELLERY COLOUR-INVARIANT EMBEDDING GENERATION")
+    print("=" * 70)
+
+    catalogue = load_catalogue()
+
+    print(
+        f"Catalogue records: {len(catalogue)}"
+    )
+
+    gold_count = process_collection(
+        collection_name="gold",
+        catalogue_dir=GOLD_CATALOGUE_DIR,
+        segmented_dir=GOLD_SEGMENTED_DIR,
+        output_file=GOLD_EMBEDDINGS_FILE
+    )
+
+    prototype_count = process_collection(
+        collection_name="prototype",
+        catalogue_dir=PROTOTYPE_CATALOGUE_DIR,
+        segmented_dir=PROTOTYPE_SEGMENTED_DIR,
+        output_file=PROTOTYPE_EMBEDDINGS_FILE
+    )
+
+    print()
+    print("=" * 70)
+    print("EMBEDDING GENERATION COMPLETE")
+    print("=" * 70)
+
+    print(
+        f"Gold embeddings:      {gold_count}"
+    )
+
+    print(
+        f"Prototype embeddings:  {prototype_count}"
+    )
+
+    print()
+    print("IMPORTANT:")
+    print(
+        "The embeddings were generated from grayscale "
+        "colour-invariant representations."
+    )
+
 
 if __name__ == "__main__":
-
     main()

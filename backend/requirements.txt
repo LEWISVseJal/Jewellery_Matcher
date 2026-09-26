@@ -1,10 +1,11 @@
 Flask
-flask-cors
-
+gunicorn
+numpy
+Pillow
 torch
 torchvision
 transformers
-
-Pillow
-numpy
+opencv-python-headless
 scikit-learn
+rembg
+onnxruntime

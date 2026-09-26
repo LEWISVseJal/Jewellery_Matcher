@@ -5,521 +5,748 @@
 ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
-  console.log("JewelMatch AI app.js loaded");
 
-  /* ========================================================
+    console.log("JewelMatch AI app.js loaded");
+
+
+    /* ========================================================
        ELEMENTS
     ======================================================== */
 
-  const uploadArea = document.getElementById("uploadArea");
+    const uploadArea =
+        document.getElementById("uploadArea");
 
-  const uploadContent = document.getElementById("uploadContent");
+    const uploadContent =
+        document.getElementById("uploadContent");
 
-  const imageInput = document.getElementById("imageInput");
+    const imageInput =
+        document.getElementById("imageInput");
 
-  const browseButton = document.getElementById("browseButton");
+    const browseButton =
+        document.getElementById("browseButton");
 
-  const previewContainer = document.getElementById("previewContainer");
+    const previewContainer =
+        document.getElementById("previewContainer");
 
-  const previewImage = document.getElementById("previewImage");
+    const previewImage =
+        document.getElementById("previewImage");
 
-  const previewWrapper = document.querySelector(".preview-image-wrapper");
+    const previewWrapper =
+        document.querySelector(".preview-image-wrapper");
 
-  const fileName = document.getElementById("fileName");
+    const fileName =
+        document.getElementById("fileName");
 
-  const fileSize = document.getElementById("fileSize");
+    const fileSize =
+        document.getElementById("fileSize");
 
-  const changeImageButton = document.getElementById("changeImageButton");
+    const changeImageButton =
+        document.getElementById("changeImageButton");
 
-  const matchButton = document.getElementById("matchButton");
+    const matchButton =
+        document.getElementById("matchButton");
 
-  const matchButtonText = document.getElementById("matchButtonText");
+    const matchButtonText =
+        document.getElementById("matchButtonText");
 
-  const matchSpinner = document.getElementById("matchSpinner");
+    const matchSpinner =
+        document.getElementById("matchSpinner");
 
-  const errorBox = document.getElementById("error");
+    const errorBox =
+        document.getElementById("error");
 
-  const loadingBox = document.getElementById("loading");
+    const loadingBox =
+        document.getElementById("loading");
 
-  const resultsSection = document.getElementById("resultsSection");
+    const resultsSection =
+        document.getElementById("resultsSection");
 
-  const bestMatchBadge = document.getElementById("bestMatchBadge");
+    const bestMatchBadge =
+        document.getElementById("bestMatchBadge");
 
-  const resultsContainer = document.getElementById("results");
+    const resultsContainer =
+        document.getElementById("results");
 
-  /* ========================================================
+
+    /* ========================================================
        STATE
     ======================================================== */
 
-  let selectedFile = null;
+    let selectedFile = null;
 
-  let imageZoom = 1;
+    let imageZoom = 1;
 
-  let imagePositionX = 0;
+    let imagePositionX = 0;
 
-  let imagePositionY = 0;
+    let imagePositionY = 0;
 
-  let isDragging = false;
+    let isDragging = false;
 
-  let dragStartX = 0;
+    let dragStartX = 0;
 
-  let dragStartY = 0;
+    let dragStartY = 0;
 
-  let startPositionX = 0;
+    let startPositionX = 0;
 
-  let startPositionY = 0;
+    let startPositionY = 0;
 
-  /* ========================================================
-       CHECK REQUIRED ELEMENTS
+
+    /* ========================================================
+       REQUIRED ELEMENT CHECK
     ======================================================== */
 
-  console.log("imageInput:", imageInput);
+    if (!imageInput) {
+        console.error("#imageInput not found");
+        return;
+    }
 
-  console.log("browseButton:", browseButton);
+    if (!browseButton) {
+        console.error("#browseButton not found");
+        return;
+    }
 
-  console.log("uploadArea:", uploadArea);
+    if (!uploadArea) {
+        console.error("#uploadArea not found");
+        return;
+    }
 
-  if (!imageInput) {
-    console.error("ERROR: #imageInput not found");
 
-    return;
-  }
-
-  if (!browseButton) {
-    console.error("ERROR: #browseButton not found");
-
-    return;
-  }
-
-  if (!uploadArea) {
-    console.error("ERROR: #uploadArea not found");
-
-    return;
-  }
-
-  /* ========================================================
-       BROWSE BUTTON
+    /* ========================================================
+       BROWSE
     ======================================================== */
 
-  browseButton.addEventListener("click", function (event) {
-    event.preventDefault();
+    browseButton.addEventListener(
+        "click",
+        function (event) {
 
-    event.stopPropagation();
+            event.preventDefault();
+            event.stopPropagation();
 
-    console.log("Browse Image clicked");
+            imageInput.click();
+        }
+    );
 
-    imageInput.click();
-  });
 
-  /* ========================================================
+    /* ========================================================
        UPLOAD AREA CLICK
     ======================================================== */
 
-  uploadArea.addEventListener("click", function (event) {
-    if (event.target === browseButton || browseButton.contains(event.target)) {
-      return;
-    }
+    uploadArea.addEventListener(
+        "click",
+        function (event) {
 
-    if (
-      changeImageButton &&
-      (event.target === changeImageButton ||
-        changeImageButton.contains(event.target))
-    ) {
-      return;
-    }
+            if (
+                event.target === browseButton ||
+                browseButton.contains(event.target)
+            ) {
+                return;
+            }
 
-    /*
-                When preview is visible,
-                clicking the upload area should
-                NOT open the file picker.
-            */
+            if (
+                changeImageButton &&
+                (
+                    event.target === changeImageButton ||
+                    changeImageButton.contains(event.target)
+                )
+            ) {
+                return;
+            }
 
-    if (previewContainer && !previewContainer.classList.contains("hidden")) {
-      return;
-    }
+            if (
+                previewContainer &&
+                !previewContainer.classList.contains("hidden")
+            ) {
+                return;
+            }
 
-    console.log("Upload area clicked");
+            imageInput.click();
+        }
+    );
 
-    imageInput.click();
-  });
 
-  /* ========================================================
+    /* ========================================================
        FILE INPUT
     ======================================================== */
 
-  imageInput.addEventListener("change", function (event) {
-    console.log("File input changed");
+    imageInput.addEventListener(
+        "change",
+        function (event) {
 
-    const files = event.target.files;
+            const files =
+                event.target.files;
 
-    if (!files || files.length === 0) {
-      console.log("No file selected");
+            if (
+                !files ||
+                files.length === 0
+            ) {
+                return;
+            }
 
-      return;
-    }
+            handleFile(files[0]);
+        }
+    );
 
-    handleFile(files[0]);
-  });
 
-  /* ========================================================
+    /* ========================================================
        HANDLE FILE
     ======================================================== */
 
-  function handleFile(file) {
-    console.log("Selected file:", file);
+    function handleFile(file) {
 
-    hideError();
+        hideError();
 
-    if (!file) {
-      return;
+        if (!file) {
+            return;
+        }
+
+        const allowedTypes = [
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/bmp"
+        ];
+
+        if (
+            !allowedTypes.includes(file.type)
+        ) {
+
+            showError(
+                "Please select a JPG, JPEG, PNG, WEBP, or BMP image."
+            );
+
+            resetSelectedFile();
+
+            return;
+        }
+
+        const maxSize =
+            20 * 1024 * 1024;
+
+        if (
+            file.size > maxSize
+        ) {
+
+            showError(
+                "Image size must be less than 20 MB."
+            );
+
+            resetSelectedFile();
+
+            return;
+        }
+
+        selectedFile = file;
+
+        resetImageView();
+
+        const reader =
+            new FileReader();
+
+        reader.onload =
+            function (event) {
+
+                previewImage.src =
+                    event.target.result;
+
+                fileName.textContent =
+                    file.name;
+
+                fileSize.textContent =
+                    formatFileSize(file.size);
+
+                uploadContent.classList.add(
+                    "hidden"
+                );
+
+                previewContainer.classList.remove(
+                    "hidden"
+                );
+
+                matchButton.disabled =
+                    false;
+
+                createZoomControls();
+            };
+
+        reader.onerror =
+            function () {
+
+                showError(
+                    "Unable to read the selected image."
+                );
+            };
+
+        reader.readAsDataURL(file);
     }
 
-    /* ----------------------------------------------------
-           FILE TYPE
-        ---------------------------------------------------- */
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/bmp"];
-
-    if (!allowedTypes.includes(file.type)) {
-      showError("Please select a JPG, JPEG, PNG, WEBP, or BMP image.");
-
-      resetSelectedFile();
-
-      return;
-    }
-
-    /* ----------------------------------------------------
-           FILE SIZE
-        ---------------------------------------------------- */
-
-    const maxSize = 20 * 1024 * 1024;
-
-    if (file.size > maxSize) {
-      showError("Image size must be less than 20 MB.");
-
-      resetSelectedFile();
-
-      return;
-    }
-
-    /* ----------------------------------------------------
-           SAVE FILE
-        ---------------------------------------------------- */
-
-    selectedFile = file;
-
-    /* ----------------------------------------------------
-           RESET IMAGE VIEW
-        ---------------------------------------------------- */
-
-    resetImageView();
-
-    /* ----------------------------------------------------
-           CREATE PREVIEW
-        ---------------------------------------------------- */
-
-    const reader = new FileReader();
-
-    reader.onload = function (event) {
-      previewImage.src = event.target.result;
-
-      fileName.textContent = file.name;
-
-      fileSize.textContent = formatFileSize(file.size);
-
-      uploadContent.classList.add("hidden");
-
-      previewContainer.classList.remove("hidden");
-
-      matchButton.disabled = false;
-
-      createZoomControls();
-
-      console.log("Preview displayed");
-    };
-
-    reader.onerror = function () {
-      showError("Unable to read the selected image.");
-    };
-
-    reader.readAsDataURL(file);
-  }
-
-  /* ========================================================
+    /* ========================================================
        CHANGE IMAGE
     ======================================================== */
 
-  if (changeImageButton) {
-    changeImageButton.addEventListener("click", function (event) {
-      event.preventDefault();
+    if (changeImageButton) {
 
-      event.stopPropagation();
+        changeImageButton.addEventListener(
+            "click",
+            function (event) {
 
-      console.log("Change image clicked");
+                event.preventDefault();
+                event.stopPropagation();
 
-      imageInput.click();
-    });
-  }
+                imageInput.click();
+            }
+        );
+    }
 
-  /* ========================================================
+
+    /* ========================================================
        DRAG & DROP
     ======================================================== */
 
-  uploadArea.addEventListener("dragover", function (event) {
-    event.preventDefault();
+    uploadArea.addEventListener(
+        "dragover",
+        function (event) {
 
-    event.stopPropagation();
+            event.preventDefault();
+            event.stopPropagation();
 
-    uploadArea.classList.add("drag-over");
-  });
+            uploadArea.classList.add(
+                "drag-over"
+            );
+        }
+    );
 
-  uploadArea.addEventListener("dragleave", function (event) {
-    event.preventDefault();
 
-    event.stopPropagation();
+    uploadArea.addEventListener(
+        "dragleave",
+        function (event) {
 
-    uploadArea.classList.remove("drag-over");
-  });
+            event.preventDefault();
+            event.stopPropagation();
 
-  uploadArea.addEventListener("drop", function (event) {
-    event.preventDefault();
+            uploadArea.classList.remove(
+                "drag-over"
+            );
+        }
+    );
 
-    event.stopPropagation();
 
-    uploadArea.classList.remove("drag-over");
+    uploadArea.addEventListener(
+        "drop",
+        function (event) {
 
-    const files = event.dataTransfer.files;
+            event.preventDefault();
+            event.stopPropagation();
 
-    if (files && files.length > 0) {
-      handleFile(files[0]);
-    }
-  });
+            uploadArea.classList.remove(
+                "drag-over"
+            );
 
-  /* ========================================================
+            const files =
+                event.dataTransfer.files;
+
+            if (
+                files &&
+                files.length > 0
+            ) {
+                handleFile(files[0]);
+            }
+        }
+    );
+
+
+    /* ========================================================
        MATCH BUTTON
     ======================================================== */
 
-  matchButton.addEventListener("click", async function (event) {
-    event.preventDefault();
+    matchButton.addEventListener(
+        "click",
+        async function (event) {
 
-    if (!selectedFile) {
-      showError("Please select an image first.");
+            event.preventDefault();
 
-      return;
-    }
+            if (!selectedFile) {
 
-    await findMatches();
-  });
+                showError(
+                    "Please select an image first."
+                );
 
-  /* ========================================================
+                return;
+            }
+
+            await findMatches();
+        }
+    );
+
+
+    /* ========================================================
        FIND MATCHES
     ======================================================== */
 
-  async function findMatches() {
-    hideError();
+    async function findMatches() {
 
-    matchButton.disabled = true;
+        hideError();
 
-    if (matchButtonText) {
-      matchButtonText.textContent = "Finding Matches...";
-    }
+        matchButton.disabled = true;
 
-    if (matchSpinner) {
-      matchSpinner.classList.remove("hidden");
-    }
+        if (matchButtonText) {
 
-    if (loadingBox) {
-      loadingBox.classList.remove("hidden");
-    }
+            matchButtonText.textContent =
+                "Finding Matches...";
+        }
 
-    resultsSection.classList.add("hidden");
+        if (matchSpinner) {
 
-    resultsContainer.innerHTML = "";
+            matchSpinner.classList.remove(
+                "hidden"
+            );
+        }
 
-    try {
-      const formData = new FormData();
+        if (loadingBox) {
 
-      formData.append("image", selectedFile);
+            loadingBox.classList.remove(
+                "hidden"
+            );
+        }
 
-      console.log("Sending image to /api/match");
-
-      const response = await fetch("/api/match", {
-        method: "POST",
-        body: formData,
-      });
-
-      console.log("Response status:", response.status);
-
-      let data;
-
-      try {
-        data = await response.json();
-      } catch (jsonError) {
-        throw new Error("The server returned an invalid response.");
-      }
-
-      console.log("Backend response:", data);
-
-      if (!response.ok) {
-        throw new Error(
-          data.error || data.message || "Matching request failed.",
+        resultsSection.classList.add(
+            "hidden"
         );
-      }
 
-      displayResults(data);
-    } catch (error) {
-      console.error("Matching error:", error);
+        resultsContainer.innerHTML =
+            "";
 
-      showError(error.message || "Something went wrong while finding matches.");
-    } finally {
-      matchButton.disabled = false;
+        try {
 
-      if (matchButtonText) {
-        matchButtonText.textContent = "Find Similar Jewellery";
-      }
+            const formData =
+                new FormData();
 
-      if (matchSpinner) {
-        matchSpinner.classList.add("hidden");
-      }
+            formData.append(
+                "image",
+                selectedFile
+            );
 
-      if (loadingBox) {
-        loadingBox.classList.add("hidden");
-      }
+            const response =
+                await fetch(
+                    "/api/match",
+                    {
+                        method: "POST",
+                        body: formData
+                    }
+                );
+
+            let data;
+
+            try {
+
+                data =
+                    await response.json();
+
+            } catch (jsonError) {
+
+                throw new Error(
+                    "The server returned an invalid response."
+                );
+            }
+
+            if (!response.ok) {
+
+                throw new Error(
+                    data.error ||
+                    data.message ||
+                    "Matching request failed."
+                );
+            }
+
+            displayResults(
+                data
+            );
+
+        } catch (error) {
+
+            console.error(
+                "Matching error:",
+                error
+            );
+
+            showError(
+                error.message ||
+                "Something went wrong while finding matches."
+            );
+
+        } finally {
+
+            matchButton.disabled =
+                false;
+
+            if (matchButtonText) {
+
+                matchButtonText.textContent =
+                    "Find Similar Jewellery";
+            }
+
+            if (matchSpinner) {
+
+                matchSpinner.classList.add(
+                    "hidden"
+                );
+            }
+
+            if (loadingBox) {
+
+                loadingBox.classList.add(
+                    "hidden"
+                );
+            }
+        }
     }
-  }
 
-  /* ========================================================
+
+    /* ========================================================
        DISPLAY RESULTS
     ======================================================== */
 
-  function displayResults(data) {
-    resultsContainer.innerHTML = "";
+    function displayResults(data) {
 
-    const results = data.results || [];
+        resultsContainer.innerHTML =
+            "";
 
-    console.log("Results received:", results.length);
+        const results =
+            data.results || [];
 
-    if (results.length === 0) {
-      resultsSection.classList.remove("hidden");
+        console.log(
+            "Results received:",
+            results.length
+        );
 
-      bestMatchBadge.textContent = "No matches found";
 
-      resultsContainer.innerHTML = `
+        /* ====================================================
+           NO RESULTS
+        ==================================================== */
+
+        if (
+            results.length === 0
+        ) {
+
+            resultsSection.classList.remove(
+                "hidden"
+            );
+
+            bestMatchBadge.textContent =
+                "No Match";
+
+            resultsContainer.innerHTML = `
                 <div class="no-results">
 
                     <h3>
-                        No similar jewellery found
+                        No reliable match found
                     </h3>
 
                     <p>
-                        Try another jewellery image
-                        with a clear view of the design.
+                        The system could not find
+                        a jewellery design with
+                        sufficient visual confidence.
                     </p>
 
                 </div>
             `;
 
-      return;
-    }
+            return;
+        }
 
-    resultsSection.classList.remove("hidden");
 
-    bestMatchBadge.textContent = `${results.length} Match${results.length > 1 ? "es" : ""}`;
-
-    /* ====================================================
-           RESULT CARDS
+        /* ====================================================
+           BEST RESULT
         ==================================================== */
 
-    results.forEach((item, index) => {
-      const card = document.createElement("div");
+        const bestResult =
+            results[0];
 
-      card.className = "result-card";
+        const bestScore =
+            Number(
+                bestResult.similarity || 0
+            );
 
-      /* ------------------------------------------------
-                   COLLECTION
-                ------------------------------------------------ */
+        const bestMatchType =
+            bestResult.match_type ||
+            "low_confidence";
 
-      const collection = item.collection || item.source_collection || "";
 
-      /* ------------------------------------------------
-                   IMAGE FILENAME
-                ------------------------------------------------ */
+        /* ====================================================
+           BADGE
+        ==================================================== */
 
-      const filename = item.filename || item.image || item.image_name || "";
+        if (
+            bestMatchType === "strong_match"
+        ) {
 
-      /* ------------------------------------------------
-                   IMAGE URL
-                ------------------------------------------------ */
+            bestMatchBadge.textContent =
+                "Strong Match";
 
-      let imageUrl = item.image_url;
+        } else if (
+            bestMatchType === "possible_match"
+        ) {
 
-      if (!imageUrl && collection && filename) {
-        imageUrl = `/catalogue/${encodeURIComponent(collection)}/${encodeURIComponent(filename)}`;
-      }
+            bestMatchBadge.textContent =
+                "Possible Match";
 
-      /* ------------------------------------------------
-                   SCORE
-                ------------------------------------------------ */
+        } else {
 
-      const score = item.similarity ?? item.score ?? item.hybrid_score ?? 0;
+            bestMatchBadge.textContent =
+                "Similar Designs";
+        }
 
-      const numericScore = Number(score);
 
-      let percentage;
+        resultsSection.classList.remove(
+            "hidden"
+        );
 
-      if (numericScore <= 1) {
-        percentage = (numericScore * 100).toFixed(1);
-      } else {
-        percentage = numericScore.toFixed(1);
-      }
 
-      /* =================================================
-                   IMPORTANT DISPLAY NAME LOGIC
-                   =================================================
+        /* ====================================================
+           RESULT MESSAGE
+        ==================================================== */
 
-                   Priority:
+        if (
+            bestMatchType === "low_confidence"
+        ) {
 
-                   1. display_name
-                   2. name
-                   3. jewellery_name
-                   4. title
-                   5. id
-                   6. filename
+            const message =
+                document.createElement(
+                    "div"
+                );
+
+            message.className =
+                "no-results";
+
+            message.innerHTML = `
+                <h3>
+                    No strong match found
+                </h3>
+
+                <p>
+                    The closest designs were below
+                    the current confidence level.
+                    You can still review the similar designs below.
+                </p>
+            `;
+
+            resultsContainer.appendChild(
+                message
+            );
+        }
+
+
+        /* ====================================================
+           RESULTS
+        ==================================================== */
+
+        results.forEach(
+            (item, index) => {
+
+                const card =
+                    document.createElement(
+                        "div"
+                    );
+
+                card.className =
+                    "result-card";
+
+
+                const collection =
+                    item.collection ||
+                    item.source_collection ||
+                    "";
+
+
+                const filename =
+                    item.filename ||
+                    item.image ||
+                    item.image_name ||
+                    "";
+
+
+                let imageUrl =
+                    item.image_url;
+
+
+                if (
+                    !imageUrl &&
+                    collection &&
+                    filename
+                ) {
+
+                    imageUrl =
+                        `/catalogue/${encodeURIComponent(collection)}/${encodeURIComponent(filename)}`;
+                }
+
+
+                const score =
+                    item.similarity ??
+                    item.score ??
+                    item.hybrid_score ??
+                    0;
+
+
+                const numericScore =
+                    Number(score);
+
+
+                const percentage =
+                    (
+                        numericScore <= 1
+                            ? numericScore * 100
+                            : numericScore
+                    ).toFixed(1);
+
+
+                /*
+                    IMPORTANT:
+                    Always prefer the catalogue NAME.
+                    Do NOT show J018 when a name exists.
                 */
 
-      const displayName =
-        item.display_name ||
-        item.name ||
-        item.jewellery_name ||
-        item.title ||
-        item.id ||
-        filename ||
-        "Jewellery";
+                const displayName =
+                    item.name ||
+                    item.display_name ||
+                    item.design_name ||
+                    item.design_id ||
+                    item.id ||
+                    filename ||
+                    "Jewellery";
 
-      /* ------------------------------------------------
-                   INTERNAL ID
-                   ------------------------------------------------ */
 
-      const jewelleryId = item.jewellery_id || item.id || "";
+                const matchType =
+                    item.match_type ||
+                    "low_confidence";
 
-      console.log(`Result ${index + 1}:`, {
-        name: displayName,
-        id: jewelleryId,
-        image: filename,
-        similarity: percentage,
-      });
 
-      /* ------------------------------------------------
-                   RESULT CARD HTML
-                ------------------------------------------------ */
+                let matchLabel =
+                    "Similar Design";
 
-      card.innerHTML = `
+
+                if (
+                    matchType === "strong_match"
+                ) {
+
+                    matchLabel =
+                        "Strong Match";
+
+                } else if (
+                    matchType === "possible_match"
+                ) {
+
+                    matchLabel =
+                        "Possible Match";
+                }
+
+
+                card.innerHTML = `
 
                     <div class="result-image-wrapper">
 
                         <img
                             src="${escapeHtml(imageUrl)}"
-                            alt="${escapeHtml(displayName)}"
+                            alt="Jewellery match ${index + 1}"
                             class="result-image"
                         >
 
@@ -543,83 +770,99 @@ document.addEventListener("DOMContentLoaded", () => {
                         </p>
 
 
-                        ${
-                          collection
-                            ? `
-                                <span class="collection-badge">
-                                    ${escapeHtml(collection)}
-                                </span>
-                            `
-                            : ""
-                        }
+                        <span class="collection-badge">
+                            ${escapeHtml(collection)}
+                        </span>
+
+
+                        <span class="collection-badge">
+                            ${escapeHtml(matchLabel)}
+                        </span>
 
                     </div>
-
                 `;
 
-      /* ------------------------------------------------
-                   IMAGE ERROR
-                ------------------------------------------------ */
 
-      const imageElement = card.querySelector(".result-image");
+                const imageElement =
+                    card.querySelector(
+                        ".result-image"
+                    );
 
-      if (imageElement) {
-        imageElement.addEventListener("error", function () {
-          console.error("Unable to load result image:", imageUrl);
 
-          this.style.display = "none";
-        });
-      }
+                imageElement.addEventListener(
+                    "error",
+                    function () {
 
-      resultsContainer.appendChild(card);
-    });
+                        this.style.display =
+                            "none";
+                    }
+                );
+
+
+                resultsContainer.appendChild(
+                    card
+                );
+            }
+        );
+
+
+        /* ====================================================
+           SCROLL
+        ==================================================== */
+
+        setTimeout(
+            () => {
+
+                resultsSection.scrollIntoView(
+                    {
+                        behavior: "smooth",
+                        block: "start"
+                    }
+                );
+
+            },
+            100
+        );
+    }
+
 
     /* ========================================================
-           SCROLL TO RESULTS
-        ======================================================== */
-
-    setTimeout(() => {
-      resultsSection.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 100);
-  }
-
-  /* ========================================================
        ZOOM CONTROLS
     ======================================================== */
 
-  function createZoomControls() {
-    if (!previewWrapper) {
-      return;
-    }
+    function createZoomControls() {
 
-    /* ----------------------------------------------------
-           REMOVE OLD CONTROLS
-        ---------------------------------------------------- */
+        if (!previewWrapper) {
+            return;
+        }
 
-    const oldControls = previewWrapper.querySelector(".zoom-controls");
+        const oldControls =
+            previewWrapper.querySelector(
+                ".zoom-controls"
+            );
 
-    if (oldControls) {
-      oldControls.remove();
-    }
+        if (oldControls) {
+            oldControls.remove();
+        }
 
-    const oldHint = previewContainer.querySelector(".zoom-hint");
+        const oldHint =
+            previewContainer.querySelector(
+                ".zoom-hint"
+            );
 
-    if (oldHint) {
-      oldHint.remove();
-    }
+        if (oldHint) {
+            oldHint.remove();
+        }
 
-    /* ----------------------------------------------------
-           CREATE CONTROL PANEL
-        ---------------------------------------------------- */
+        const controls =
+            document.createElement(
+                "div"
+            );
 
-    const controls = document.createElement("div");
+        controls.className =
+            "zoom-controls";
 
-    controls.className = "zoom-controls";
-
-    controls.innerHTML = `
+        controls.innerHTML = `
 
             <button
                 type="button"
@@ -630,7 +873,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 −
             </button>
 
-
             <button
                 type="button"
                 class="zoom-button"
@@ -639,7 +881,6 @@ document.addEventListener("DOMContentLoaded", () => {
             >
                 +
             </button>
-
 
             <button
                 type="button"
@@ -652,357 +893,467 @@ document.addEventListener("DOMContentLoaded", () => {
 
         `;
 
-    previewWrapper.appendChild(controls);
+        previewWrapper.appendChild(
+            controls
+        );
 
-    /* ----------------------------------------------------
-           BUTTON EVENTS
-        ---------------------------------------------------- */
 
-    const zoomOut = controls.querySelector('[data-zoom="out"]');
+        const zoomOut =
+            controls.querySelector(
+                '[data-zoom="out"]'
+            );
 
-    const zoomIn = controls.querySelector('[data-zoom="in"]');
+        const zoomIn =
+            controls.querySelector(
+                '[data-zoom="in"]'
+            );
 
-    const resetZoom = controls.querySelector('[data-zoom="reset"]');
+        const resetZoom =
+            controls.querySelector(
+                '[data-zoom="reset"]'
+            );
 
-    zoomOut.addEventListener("click", function (event) {
-      event.preventDefault();
 
-      event.stopPropagation();
+        zoomOut.addEventListener(
+            "click",
+            function (event) {
 
-      changeZoom(-0.2);
-    });
+                event.preventDefault();
+                event.stopPropagation();
 
-    zoomIn.addEventListener("click", function (event) {
-      event.preventDefault();
+                changeZoom(-0.2);
+            }
+        );
 
-      event.stopPropagation();
 
-      changeZoom(0.2);
-    });
+        zoomIn.addEventListener(
+            "click",
+            function (event) {
 
-    resetZoom.addEventListener("click", function (event) {
-      event.preventDefault();
+                event.preventDefault();
+                event.stopPropagation();
 
-      event.stopPropagation();
+                changeZoom(0.2);
+            }
+        );
 
-      resetImageView();
-    });
 
-    /* ----------------------------------------------------
-           ZOOM HINT
-        ---------------------------------------------------- */
+        resetZoom.addEventListener(
+            "click",
+            function (event) {
 
-    const hint = document.createElement("div");
+                event.preventDefault();
+                event.stopPropagation();
 
-    hint.className = "zoom-hint";
+                resetImageView();
+            }
+        );
 
-    hint.textContent = "Scroll to zoom • Drag to move • Reset to fit";
 
-    previewContainer.appendChild(hint);
+        const hint =
+            document.createElement(
+                "div"
+            );
 
-    setupImagePanAndZoom();
-  }
+        hint.className =
+            "zoom-hint";
 
-  /* ========================================================
-       CHANGE ZOOM
+        hint.textContent =
+            "Scroll to zoom • Drag to move • Reset to fit";
+
+        previewContainer.appendChild(
+            hint
+        );
+
+        setupImagePanAndZoom();
+    }
+
+
+    /* ========================================================
+       ZOOM
     ======================================================== */
 
-  function changeZoom(amount) {
-    imageZoom += amount;
+    function changeZoom(amount) {
 
-    if (imageZoom < 1) {
-      imageZoom = 1;
-    }
+        imageZoom += amount;
 
-    if (imageZoom > 4) {
-      imageZoom = 4;
-    }
-
-    applyImageTransform();
-  }
-
-  /* ========================================================
-       RESET IMAGE VIEW
-    ======================================================== */
-
-  function resetImageView() {
-    imageZoom = 1;
-
-    imagePositionX = 0;
-
-    imagePositionY = 0;
-
-    applyImageTransform();
-  }
-
-  /* ========================================================
-       APPLY IMAGE TRANSFORM
-    ======================================================== */
-
-  function applyImageTransform() {
-    if (!previewImage) {
-      return;
-    }
-
-    previewImage.style.transform = `translate(${imagePositionX}px, ${imagePositionY}px) scale(${imageZoom})`;
-  }
-
-  /* ========================================================
-       IMAGE PAN + MOUSE WHEEL ZOOM
-    ======================================================== */
-
-  function setupImagePanAndZoom() {
-    if (!previewWrapper) {
-      return;
-    }
-
-    /*
-            Prevent duplicate event registration.
-        */
-
-    if (previewWrapper.dataset.zoomReady === "true") {
-      return;
-    }
-
-    previewWrapper.dataset.zoomReady = "true";
-
-    /* ----------------------------------------------------
-           MOUSE WHEEL
-        ---------------------------------------------------- */
-
-    previewWrapper.addEventListener(
-      "wheel",
-      function (event) {
-        event.preventDefault();
-
-        const direction = event.deltaY < 0 ? 0.2 : -0.2;
-
-        changeZoom(direction);
-      },
-      {
-        passive: false,
-      },
-    );
-
-    /* ----------------------------------------------------
-           MOUSE DOWN
-        ---------------------------------------------------- */
-
-    previewWrapper.addEventListener("mousedown", function (event) {
-      if (event.target.closest(".zoom-controls")) {
-        return;
-      }
-
-      if (imageZoom <= 1) {
-        return;
-      }
-
-      isDragging = true;
-
-      dragStartX = event.clientX;
-
-      dragStartY = event.clientY;
-
-      startPositionX = imagePositionX;
-
-      startPositionY = imagePositionY;
-
-      previewWrapper.style.cursor = "grabbing";
-    });
-
-    /* ----------------------------------------------------
-           MOUSE MOVE
-        ---------------------------------------------------- */
-
-    document.addEventListener("mousemove", function (event) {
-      if (!isDragging) {
-        return;
-      }
-
-      const deltaX = event.clientX - dragStartX;
-
-      const deltaY = event.clientY - dragStartY;
-
-      imagePositionX = startPositionX + deltaX;
-
-      imagePositionY = startPositionY + deltaY;
-
-      applyImageTransform();
-    });
-
-    /* ----------------------------------------------------
-           MOUSE UP
-        ---------------------------------------------------- */
-
-    document.addEventListener("mouseup", function () {
-      if (!isDragging) {
-        return;
-      }
-
-      isDragging = false;
-
-      previewWrapper.style.cursor = imageZoom > 1 ? "grab" : "default";
-    });
-
-    /* ----------------------------------------------------
-           TOUCH START
-        ---------------------------------------------------- */
-
-    previewWrapper.addEventListener(
-      "touchstart",
-      function (event) {
-        if (imageZoom <= 1 || event.touches.length !== 1) {
-          return;
+        if (imageZoom < 1) {
+            imageZoom = 1;
         }
 
-        const touch = event.touches[0];
-
-        isDragging = true;
-
-        dragStartX = touch.clientX;
-
-        dragStartY = touch.clientY;
-
-        startPositionX = imagePositionX;
-
-        startPositionY = imagePositionY;
-      },
-      {
-        passive: true,
-      },
-    );
-
-    /* ----------------------------------------------------
-           TOUCH MOVE
-        ---------------------------------------------------- */
-
-    previewWrapper.addEventListener(
-      "touchmove",
-      function (event) {
-        if (!isDragging || event.touches.length !== 1) {
-          return;
+        if (imageZoom > 4) {
+            imageZoom = 4;
         }
-
-        event.preventDefault();
-
-        const touch = event.touches[0];
-
-        imagePositionX = startPositionX + (touch.clientX - dragStartX);
-
-        imagePositionY = startPositionY + (touch.clientY - dragStartY);
 
         applyImageTransform();
-      },
-      {
-        passive: false,
-      },
-    );
+    }
 
-    /* ----------------------------------------------------
-           TOUCH END
-        ---------------------------------------------------- */
 
-    previewWrapper.addEventListener("touchend", function () {
-      isDragging = false;
-    });
-  }
+    function resetImageView() {
 
-  /* ========================================================
-       RESET SELECTED FILE
+        imageZoom = 1;
+
+        imagePositionX = 0;
+
+        imagePositionY = 0;
+
+        applyImageTransform();
+    }
+
+
+    function applyImageTransform() {
+
+        if (!previewImage) {
+            return;
+        }
+
+        previewImage.style.transform =
+            `translate(${imagePositionX}px, ${imagePositionY}px) scale(${imageZoom})`;
+    }
+
+
+    /* ========================================================
+       PAN + WHEEL
     ======================================================== */
 
-  function resetSelectedFile() {
-    selectedFile = null;
+    function setupImagePanAndZoom() {
 
-    imageInput.value = "";
+        if (!previewWrapper) {
+            return;
+        }
 
-    matchButton.disabled = true;
+        if (
+            previewWrapper.dataset.zoomReady === "true"
+        ) {
+            return;
+        }
 
-    if (previewImage) {
-      previewImage.src = "";
+        previewWrapper.dataset.zoomReady =
+            "true";
+
+
+        previewWrapper.addEventListener(
+            "wheel",
+            function (event) {
+
+                event.preventDefault();
+
+                const direction =
+                    event.deltaY < 0
+                        ? 0.2
+                        : -0.2;
+
+                changeZoom(
+                    direction
+                );
+            },
+            {
+                passive: false
+            }
+        );
+
+
+        previewWrapper.addEventListener(
+            "mousedown",
+            function (event) {
+
+                if (
+                    event.target.closest(
+                        ".zoom-controls"
+                    )
+                ) {
+                    return;
+                }
+
+                if (
+                    imageZoom <= 1
+                ) {
+                    return;
+                }
+
+                isDragging = true;
+
+                dragStartX =
+                    event.clientX;
+
+                dragStartY =
+                    event.clientY;
+
+                startPositionX =
+                    imagePositionX;
+
+                startPositionY =
+                    imagePositionY;
+
+                previewWrapper.style.cursor =
+                    "grabbing";
+            }
+        );
+
+
+        document.addEventListener(
+            "mousemove",
+            function (event) {
+
+                if (!isDragging) {
+                    return;
+                }
+
+                imagePositionX =
+                    startPositionX +
+                    (
+                        event.clientX -
+                        dragStartX
+                    );
+
+                imagePositionY =
+                    startPositionY +
+                    (
+                        event.clientY -
+                        dragStartY
+                    );
+
+                applyImageTransform();
+            }
+        );
+
+
+        document.addEventListener(
+            "mouseup",
+            function () {
+
+                if (!isDragging) {
+                    return;
+                }
+
+                isDragging = false;
+
+                previewWrapper.style.cursor =
+                    imageZoom > 1
+                        ? "grab"
+                        : "default";
+            }
+        );
+
+
+        previewWrapper.addEventListener(
+            "touchstart",
+            function (event) {
+
+                if (
+                    imageZoom <= 1 ||
+                    event.touches.length !== 1
+                ) {
+                    return;
+                }
+
+                const touch =
+                    event.touches[0];
+
+                isDragging = true;
+
+                dragStartX =
+                    touch.clientX;
+
+                dragStartY =
+                    touch.clientY;
+
+                startPositionX =
+                    imagePositionX;
+
+                startPositionY =
+                    imagePositionY;
+            },
+            {
+                passive: true
+            }
+        );
+
+
+        previewWrapper.addEventListener(
+            "touchmove",
+            function (event) {
+
+                if (
+                    !isDragging ||
+                    event.touches.length !== 1
+                ) {
+                    return;
+                }
+
+                event.preventDefault();
+
+                const touch =
+                    event.touches[0];
+
+                imagePositionX =
+                    startPositionX +
+                    (
+                        touch.clientX -
+                        dragStartX
+                    );
+
+                imagePositionY =
+                    startPositionY +
+                    (
+                        touch.clientY -
+                        dragStartY
+                    );
+
+                applyImageTransform();
+            },
+            {
+                passive: false
+            }
+        );
+
+
+        previewWrapper.addEventListener(
+            "touchend",
+            function () {
+
+                isDragging = false;
+            }
+        );
     }
 
-    if (previewContainer) {
-      previewContainer.classList.add("hidden");
-    }
 
-    if (uploadContent) {
-      uploadContent.classList.remove("hidden");
-    }
-
-    resetImageView();
-  }
-
-  /* ========================================================
-       FORMAT FILE SIZE
+    /* ========================================================
+       RESET FILE
     ======================================================== */
 
-  function formatFileSize(bytes) {
-    if (bytes === 0) {
-      return "0 Bytes";
+    function resetSelectedFile() {
+
+        selectedFile = null;
+
+        imageInput.value = "";
+
+        matchButton.disabled = true;
+
+        if (previewImage) {
+            previewImage.src = "";
+        }
+
+        if (previewContainer) {
+            previewContainer.classList.add(
+                "hidden"
+            );
+        }
+
+        if (uploadContent) {
+            uploadContent.classList.remove(
+                "hidden"
+            );
+        }
+
+        resetImageView();
     }
 
-    const units = ["Bytes", "KB", "MB", "GB"];
 
-    const index = Math.floor(Math.log(bytes) / Math.log(1024));
+    /* ========================================================
+       FILE SIZE
+    ======================================================== */
 
-    return (
-      parseFloat((bytes / Math.pow(1024, index)).toFixed(2)) +
-      " " +
-      units[index]
-    );
-  }
+    function formatFileSize(bytes) {
 
-  /* ========================================================
+        if (bytes === 0) {
+            return "0 Bytes";
+        }
+
+        const units = [
+            "Bytes",
+            "KB",
+            "MB",
+            "GB"
+        ];
+
+        const index =
+            Math.floor(
+                Math.log(bytes) /
+                Math.log(1024)
+            );
+
+        return (
+            parseFloat(
+                (
+                    bytes /
+                    Math.pow(
+                        1024,
+                        index
+                    )
+                ).toFixed(2)
+            )
+            +
+            " " +
+            units[index]
+        );
+    }
+
+
+    /* ========================================================
        ESCAPE HTML
     ======================================================== */
 
-  function escapeHtml(value) {
-    if (value === null || value === undefined) {
-      return "";
+    function escapeHtml(value) {
+
+        if (
+            value === null ||
+            value === undefined
+        ) {
+            return "";
+        }
+
+        return String(value)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
     }
 
-    return String(value)
-      .replace(/&/g, "&amp;")
 
-      .replace(/</g, "&lt;")
-
-      .replace(/>/g, "&gt;")
-
-      .replace(/"/g, "&quot;")
-
-      .replace(/'/g, "&#039;");
-  }
-
-  /* ========================================================
+    /* ========================================================
        ERROR
     ======================================================== */
 
-  function showError(message) {
-    if (!errorBox) {
-      return;
+    function showError(message) {
+
+        if (!errorBox) {
+            return;
+        }
+
+        errorBox.textContent =
+            message;
+
+        errorBox.classList.remove(
+            "hidden"
+        );
     }
 
-    errorBox.textContent = message;
 
-    errorBox.classList.remove("hidden");
-  }
+    function hideError() {
 
-  function hideError() {
-    if (!errorBox) {
-      return;
+        if (!errorBox) {
+            return;
+        }
+
+        errorBox.textContent =
+            "";
+
+        errorBox.classList.add(
+            "hidden"
+        );
     }
 
-    errorBox.textContent = "";
 
-    errorBox.classList.add("hidden");
-  }
-
-  /* ========================================================
+    /* ========================================================
        INITIAL STATE
     ======================================================== */
 
-  resetImageView();
+    resetImageView();
 
-  console.log("JewelMatch AI initialized successfully");
+    console.log(
+        "JewelMatch AI initialized successfully"
+    );
+
 });

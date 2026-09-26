@@ -302,12 +302,13 @@
     {
         "id": "J031",
         "name": "Gold Aurora Ring",
-        "gender": "Female",
+        "gender": "Women",
         "type": "Ring",
         "subtype": "",
         "collection": "gold",
         "description": "",
-        "image": "J031.jpeg"
+        "image": "J031.jpeg",
+        "category": "Ring"
     },
     {
         "id": "J032",

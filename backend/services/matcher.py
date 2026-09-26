@@ -1,207 +1,54 @@
-import os
+"""
+JewelMatch AI - Lightweight cross-collection matcher.
+"""
+
+from pathlib import Path
 import json
 
 import cv2
 import numpy as np
 
-from .embedding import (
-    create_embedding,
-)
+from .embedding import create_embedding
 
-# ============================================================
-# PATHS
-# ============================================================
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATABASE_DIR = BASE_DIR / "database"
 
-PROJECT_DIR = os.path.dirname(BASE_DIR)
+CATALOGUE_FILE = DATABASE_DIR / "jewellery.json"
 
-DATABASE_DIR = os.path.join(
-    BASE_DIR,
-    "database",
-)
+INDEX_FILE = DATABASE_DIR / "lightweight_index.npz"
 
-CATALOGUE_FILE = os.path.join(
-    DATABASE_DIR,
-    "jewellery.json",
-)
+TOP_K = 8
 
-INDEX_FILE = os.path.join(
-    DATABASE_DIR,
-    "lightweight_index.npz",
-)
-
-
-# ============================================================
-# MEMORY CACHE
-# ============================================================
+MIN_MATCH_SCORE = 0.30
 
 _INDEX_CACHE = None
 
 
-# ============================================================
-# CATALOGUE
-# ============================================================
+def clear_index_cache():
+    global _INDEX_CACHE
+
+    _INDEX_CACHE = None
 
 
-def load_catalogue():
+def normalise_collection(value):
 
-    if not os.path.exists(CATALOGUE_FILE):
-        return []
+    value = str(value or "").strip().lower()
 
-    try:
+    if value in {
+        "gold",
+        "g",
+    }:
+        return "gold"
 
-        with open(
-            CATALOGUE_FILE,
-            "r",
-            encoding="utf-8",
-        ) as file:
+    if value in {
+        "prototype",
+        "p",
+        "proto",
+    }:
+        return "prototype"
 
-            data = json.load(file)
-
-    except Exception as exc:
-
-        print(f"[MATCHER] Catalogue load error: {exc}")
-
-        return []
-
-    if isinstance(
-        data,
-        dict,
-    ):
-
-        if "jewellery" in data:
-
-            return data["jewellery"]
-
-        if "items" in data:
-
-            return data["items"]
-
-    if isinstance(
-        data,
-        list,
-    ):
-
-        return data
-
-    return []
-
-
-# ============================================================
-# ITEM ID
-# ============================================================
-
-
-def get_item_id(
-    item,
-):
-
-    return str(
-        item.get(
-            "id",
-            item.get(
-                "design_id",
-                "",
-            ),
-        )
-    )
-
-
-# ============================================================
-# COLLECTION
-# ============================================================
-
-
-def get_collection(
-    item,
-):
-
-    return (
-        str(
-            item.get(
-                "collection",
-                item.get(
-                    "category",
-                    "",
-                ),
-            )
-        )
-        .strip()
-        .lower()
-    )
-
-
-# ============================================================
-# IMAGE PATH
-# ============================================================
-
-
-def get_image_path(
-    item,
-):
-
-    image_path = item.get("image_path")
-
-    if not image_path:
-
-        image_path = item.get("image")
-
-    if not image_path:
-
-        image_path = item.get("path")
-
-    if not image_path:
-
-        return None
-
-    image_path = str(image_path).replace(
-        "\\",
-        "/",
-    )
-
-    candidates = []
-
-    if os.path.isabs(image_path):
-
-        candidates.append(image_path)
-
-    candidates.extend(
-        [
-            os.path.join(
-                PROJECT_DIR,
-                image_path,
-            ),
-            os.path.join(
-                BASE_DIR,
-                image_path,
-            ),
-        ]
-    )
-
-    for candidate in candidates:
-
-        if os.path.exists(candidate):
-
-            return candidate
-
-    filename = os.path.basename(image_path)
-
-    for root, _, files in os.walk(PROJECT_DIR):
-
-        if filename in files:
-
-            return os.path.join(
-                root,
-                filename,
-            )
-
-    return None
-
-
-# ============================================================
-# LOAD INDEX
-# ============================================================
+    return value
 
 
 def load_index():
@@ -209,491 +56,361 @@ def load_index():
     global _INDEX_CACHE
 
     if _INDEX_CACHE is not None:
-
         return _INDEX_CACHE
 
-    if not os.path.exists(INDEX_FILE):
+    if not INDEX_FILE.exists():
 
-        print("[MATCHER] Lightweight index not found.")
-
-        return None
-
-    try:
-
-        data = np.load(
-            INDEX_FILE,
-            allow_pickle=False,
+        raise FileNotFoundError(
+            "Lightweight index not found. "
+            "Run: python -m "
+            "backend.scripts.create_lightweight_index"
         )
 
-        _INDEX_CACHE = {
-            "features": data["features"],
-            "ids": data["ids"],
-            "collections": data["collections"],
-        }
+    data = np.load(
+        INDEX_FILE,
+        allow_pickle=True,
+    )
 
-        print("[MATCHER] Lightweight index loaded.")
+    _INDEX_CACHE = {
+        "features": np.asarray(
+            data["features"],
+            dtype=np.float32,
+        ),
+        "ids": np.asarray(
+            data["ids"],
+            dtype=str,
+        ),
+        "collections": np.asarray(
+            data["collections"],
+            dtype=str,
+        ),
+    }
 
-        print(
-            "[MATCHER] Feature matrix:",
-            _INDEX_CACHE["features"].shape,
-        )
-
-        return _INDEX_CACHE
-
-    except Exception as exc:
-
-        print(f"[MATCHER] Index load failed: {exc}")
-
-        return None
-
-
-# ============================================================
-# CLEAR INDEX
-# ============================================================
+    return _INDEX_CACHE
 
 
-def clear_index_cache():
+def load_catalogue():
 
-    global _INDEX_CACHE
+    if not CATALOGUE_FILE.exists():
+        return []
 
-    _INDEX_CACHE = None
+    with open(
+        CATALOGUE_FILE,
+        "r",
+        encoding="utf-8",
+    ) as file:
 
-    print("[MATCHER] Index cache cleared.")
+        data = json.load(file)
+
+    if isinstance(data, list):
+        return data
+
+    if isinstance(data, dict):
+
+        for key in (
+            "jewellery",
+            "items",
+            "catalogue",
+            "data",
+        ):
+
+            if isinstance(
+                data.get(key),
+                list,
+            ):
+                return data[key]
+
+    return []
 
 
-# ============================================================
-# COSINE SIMILARITY
-# ============================================================
+def get_item_id(item):
+
+    return str(
+        item.get("id") or item.get("jewellery_id") or item.get("design_id") or ""
+    )
 
 
-def cosine_similarity_vector(
-    query,
-    matrix,
+def get_item_filename(item):
+
+    value = (
+        item.get("filename")
+        or item.get("image")
+        or item.get("image_filename")
+        or item.get("image_path")
+        or ""
+    )
+
+    if not value:
+        return ""
+
+    return Path(str(value)).name
+
+
+def resolve_item_image(
+    item,
+    collection,
 ):
 
-    query = np.asarray(
-        query,
+    filename = get_item_filename(item)
+
+    if not filename:
+        return None
+
+    path = BASE_DIR / "catalogue" / collection / filename
+
+    if path.exists():
+        return path
+
+    return None
+
+
+def cosine_similarity(a, b):
+
+    a = np.asarray(
+        a,
         dtype=np.float32,
     )
 
-    matrix = np.asarray(
-        matrix,
+    b = np.asarray(
+        b,
         dtype=np.float32,
     )
 
-    if matrix.ndim == 1:
+    denominator = np.linalg.norm(a) * np.linalg.norm(b)
 
-        matrix = matrix.reshape(
-            1,
-            -1,
-        )
+    if denominator < 1e-8:
+        return 0.0
 
-    query_norm = np.linalg.norm(query)
-
-    if query_norm < 1e-8:
-
-        return np.zeros(
-            len(matrix),
-            dtype=np.float32,
-        )
-
-    matrix_norms = np.linalg.norm(
-        matrix,
-        axis=1,
-    )
-
-    matrix_norms[matrix_norms < 1e-8] = 1.0
-
-    scores = (matrix @ query) / (matrix_norms * query_norm)
-
-    return scores
+    return float(np.dot(a, b) / denominator)
 
 
-# ============================================================
-# STRUCTURAL SIMILARITY
-# ============================================================
-
-
-def structural_similarity(
+def edge_similarity(
     query_path,
-    candidate_path,
+    target_path,
 ):
 
     try:
 
         query = cv2.imread(
-            query_path,
+            str(query_path),
             cv2.IMREAD_GRAYSCALE,
         )
 
-        candidate = cv2.imread(
-            candidate_path,
+        target = cv2.imread(
+            str(target_path),
             cv2.IMREAD_GRAYSCALE,
         )
 
-        if query is None:
-            return 0.0
-
-        if candidate is None:
+        if query is None or target is None:
             return 0.0
 
         query = cv2.resize(
             query,
-            (128, 128),
+            (64, 64),
             interpolation=cv2.INTER_AREA,
         )
 
-        candidate = cv2.resize(
-            candidate,
-            (128, 128),
+        target = cv2.resize(
+            target,
+            (64, 64),
             interpolation=cv2.INTER_AREA,
         )
 
-        query_edges = cv2.Canny(
-            query,
-            50,
-            150,
+        query_edges = (
+            cv2.Canny(
+                query,
+                40,
+                120,
+            ).astype(np.float32)
+            / 255.0
         )
 
-        candidate_edges = cv2.Canny(
-            candidate,
-            50,
-            150,
+        target_edges = (
+            cv2.Canny(
+                target,
+                40,
+                120,
+            ).astype(np.float32)
+            / 255.0
         )
 
-        query_vector = query_edges.astype(np.float32).flatten() / 255.0
-
-        candidate_vector = candidate_edges.astype(np.float32).flatten() / 255.0
-
-        query_norm = np.linalg.norm(query_vector)
-
-        candidate_norm = np.linalg.norm(candidate_vector)
-
-        if query_norm < 1e-8 or candidate_norm < 1e-8:
-
-            return 0.0
-
-        score = np.dot(
-            query_vector,
-            candidate_vector,
-        ) / (query_norm * candidate_norm)
-
-        return float(
-            max(
-                0.0,
-                min(
-                    1.0,
-                    score,
-                ),
-            )
+        return cosine_similarity(
+            query_edges.flatten(),
+            target_edges.flatten(),
         )
 
-    except Exception as exc:
-
-        print(f"[MATCHER] Structural error: {exc}")
-
+    except Exception:
         return 0.0
 
 
-# ============================================================
-# SOURCE COLLECTION
-# ============================================================
-
-
-def identify_source_collection(
-    image_path,
-):
+def identify_source_collection(query_embedding):
 
     index = load_index()
 
-    if index is None:
+    best_scores = {}
 
-        print("[MATCHER] Cannot identify source: " "index unavailable.")
+    for collection in (
+        "gold",
+        "prototype",
+    ):
 
-        return "unknown"
+        mask = np.char.lower(index["collections"].astype(str)) == collection
 
-    query_embedding = create_embedding(image_path)
+        features = index["features"][mask]
 
-    similarities = cosine_similarity_vector(
-        query_embedding,
-        index["features"],
+        if len(features) == 0:
+
+            best_scores[collection] = 0.0
+
+            continue
+
+        scores = features @ query_embedding
+
+        best_scores[collection] = float(np.max(scores))
+
+    source = max(
+        best_scores,
+        key=best_scores.get,
     )
 
-    gold_mask = index["collections"] == "gold"
-
-    prototype_mask = index["collections"] == "prototype"
-
-    gold_scores = similarities[gold_mask]
-
-    prototype_scores = similarities[prototype_mask]
-
-    gold_score = float(np.max(gold_scores)) if len(gold_scores) else 0.0
-
-    prototype_score = float(np.max(prototype_scores)) if len(prototype_scores) else 0.0
-
-    print(f"[MATCHER] Gold similarity: " f"{gold_score:.4f}")
-
-    print(f"[MATCHER] Prototype similarity: " f"{prototype_score:.4f}")
-
-    if gold_score == 0.0 and prototype_score == 0.0:
-
-        return "unknown"
-
-    if gold_score >= prototype_score:
-
-        return "gold"
-
-    return "prototype"
-
-
-# ============================================================
-# MAIN MATCH FUNCTION
-# ============================================================
+    return (
+        source,
+        best_scores,
+    )
 
 
 def match_jewellery(
-    image_path,
+    query_image_path,
+    top_k=TOP_K,
     target_collection="auto",
-    top_k=8,
 ):
-
-    print("=" * 70)
-
-    print("JEWELMATCH AI - LIGHTWEIGHT CROSS-COLLECTION SEARCH")
-
-    print("=" * 70)
-
-    print(f"Query image: " f"{os.path.basename(image_path)}")
-
-    # --------------------------------------------------------
-    # Catalogue
-    # --------------------------------------------------------
-
-    catalogue = load_catalogue()
-
-    if not catalogue:
-
-        return {
-            "success": False,
-            "message": "Catalogue is empty.",
-            "results": [],
-        }
-
-    # --------------------------------------------------------
-    # Index
-    # --------------------------------------------------------
 
     index = load_index()
 
-    if index is None:
+    catalogue = load_catalogue()
 
-        return {
-            "success": False,
-            "message": (
-                "Search index is not available. " "Please rebuild the catalogue index."
-            ),
-            "results": [],
-        }
+    catalogue_by_id = {get_item_id(item): item for item in catalogue}
 
-    # --------------------------------------------------------
-    # Source collection
-    # --------------------------------------------------------
+    query_embedding = create_embedding(query_image_path)
 
-    print("[MATCHER] Identifying source collection...")
-
-    source_collection = identify_source_collection(image_path)
-
-    print(f"[MATCHER] Source collection: " f"{source_collection}")
-
-    # --------------------------------------------------------
-    # Target collection
-    # --------------------------------------------------------
+    source_collection, source_scores = identify_source_collection(query_embedding)
 
     if target_collection == "auto":
 
         if source_collection == "gold":
-
-            target_collection = "prototype"
-
-        elif source_collection == "prototype":
-
-            target_collection = "gold"
-
+            target = "prototype"
         else:
+            target = "gold"
 
-            target_collection = "gold"
+    else:
 
-    print(f"[MATCHER] Target collection: " f"{target_collection}")
+        target = normalise_collection(target_collection)
 
-    # --------------------------------------------------------
-    # Query embedding
-    # --------------------------------------------------------
+    collection_values = np.char.lower(index["collections"].astype(str))
 
-    query_embedding = create_embedding(image_path)
+    positions = np.where(collection_values == target)[0]
 
-    # --------------------------------------------------------
-    # Target candidates
-    # --------------------------------------------------------
-
-    collection_mask = index["collections"] == target_collection
-
-    candidate_features = index["features"][collection_mask]
-
-    candidate_ids = index["ids"][collection_mask]
-
-    if len(candidate_features) == 0:
+    if len(positions) == 0:
 
         return {
-            "success": True,
             "source_collection": source_collection,
-            "target_collection": target_collection,
+            "target_collection": target,
+            "source_scores": source_scores,
             "results": [],
-            "message": (f"No {target_collection} " "jewellery found."),
+            "best_score": 0.0,
+            "has_match": False,
+            "threshold": MIN_MATCH_SCORE,
         }
 
-    # --------------------------------------------------------
-    # Similarity
-    # --------------------------------------------------------
+    candidates = []
 
-    similarities = cosine_similarity_vector(
-        query_embedding,
-        candidate_features,
-    )
+    for position in positions:
 
-    ranking = np.argsort(similarities)[::-1]
+        feature = index["features"][position]
 
-    # Examine more candidates before
-    # applying structural comparison.
+        cosine = cosine_similarity(
+            query_embedding,
+            feature,
+        )
 
-    candidate_limit = min(
-        len(ranking),
-        max(
-            top_k * 3,
-            20,
-        ),
-    )
+        item_id = str(index["ids"][position])
 
-    ranking = ranking[:candidate_limit]
+        item = catalogue_by_id.get(
+            item_id,
+            {},
+        )
 
-    catalogue_by_id = {get_item_id(item): item for item in catalogue}
+        image_path = resolve_item_image(
+            item,
+            target,
+        )
 
-    results = []
+        edge_score = 0.0
 
-    # --------------------------------------------------------
-    # Detailed comparison
-    # --------------------------------------------------------
+        if image_path and image_path.exists():
 
-    for position in ranking:
-
-        item_id = str(candidate_ids[position])
-
-        item = catalogue_by_id.get(item_id)
-
-        if item is None:
-            continue
-
-        embedding_score = float(similarities[position])
-
-        candidate_path = get_image_path(item)
-
-        structure_score = 0.0
-
-        if candidate_path and os.path.exists(candidate_path):
-
-            structure_score = structural_similarity(
+            edge_score = edge_similarity(
+                query_image_path,
                 image_path,
-                candidate_path,
             )
 
-        # ----------------------------------------------------
-        # Final design score
-        # ----------------------------------------------------
+        final_score = 0.82 * cosine + 0.18 * edge_score
 
-        final_score = 0.75 * embedding_score + 0.25 * structure_score
-
-        results.append(
+        candidates.append(
             {
+                "item": item,
                 "id": item_id,
-                "design_id": item.get(
-                    "design_id",
-                    item_id,
+                "similarity": float(
+                    np.clip(
+                        final_score,
+                        0.0,
+                        1.0,
+                    )
                 ),
-                "name": item.get(
-                    "name",
-                    "Unnamed Jewellery",
-                ),
-                "collection": get_collection(item),
-                "gender": item.get(
-                    "gender",
-                    "",
-                ),
-                "type": item.get(
-                    "type",
-                    "",
-                ),
-                "subtype": item.get(
-                    "subtype",
-                    "",
-                ),
-                "description": item.get(
-                    "description",
-                    "",
-                ),
-                "image_path": item.get(
-                    "image_path",
-                    item.get(
-                        "image",
-                        "",
-                    ),
-                ),
-                "similarity": round(
-                    final_score,
-                    4,
-                ),
-                "score": round(
-                    final_score * 100,
-                    2,
-                ),
-                "embedding_score": round(
-                    embedding_score,
-                    4,
-                ),
-                "structure_score": round(
-                    structure_score,
-                    4,
-                ),
+                "cosine_similarity": float(cosine),
+                "edge_similarity": float(edge_score),
             }
         )
 
-    # --------------------------------------------------------
-    # Sort
-    # --------------------------------------------------------
-
-    results.sort(
-        key=lambda result: result["similarity"],
+    candidates.sort(
+        key=lambda item: item["similarity"],
         reverse=True,
     )
 
-    results = results[:top_k]
+    candidates = candidates[: max(1, int(top_k))]
 
-    # --------------------------------------------------------
-    # Logging
-    # --------------------------------------------------------
+    for result in candidates:
 
-    print(f"[MATCHER] Returning " f"{len(results)} results")
+        item = result["item"]
 
-    if results:
+        collection = normalise_collection(item.get("collection") or target)
 
-        print(f"[MATCHER] Best similarity: " f"{results[0]['similarity']:.4f}")
+        filename = get_item_filename(item)
 
-        print(f"[MATCHER] Best match: " f"{results[0]['name']}")
+        result["image_url"] = (
+            f"/catalogue/" f"{collection}/" f"{filename}" if filename else None
+        )
 
-    print("=" * 70)
+        result["name"] = item.get("name") or item.get("jewellery_name") or result["id"]
+
+        result["collection"] = collection
+
+        result["type"] = item.get("type") or item.get("jewellery_type") or ""
+
+        result["gender"] = item.get("gender") or ""
+
+        result["description"] = item.get("description") or ""
+
+    best_score = candidates[0]["similarity"] if candidates else 0.0
+
+    has_match = best_score >= MIN_MATCH_SCORE
 
     return {
-        "success": True,
         "source_collection": source_collection,
-        "target_collection": target_collection,
-        "query_image": os.path.basename(image_path),
-        "results": results,
+        "target_collection": target,
+        "source_scores": source_scores,
+        "results": candidates if has_match else [],
+        "best_score": float(best_score),
+        "has_match": has_match,
+        "threshold": MIN_MATCH_SCORE,
     }

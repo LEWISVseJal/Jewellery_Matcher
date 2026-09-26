@@ -1,290 +1,191 @@
-import os
+"""
+JewelMatch AI - Lightweight image feature extraction.
+
+CPU-only OpenCV implementation.
+No torch, transformers, DINOv2, rembg or ONNX model required.
+"""
+
+from pathlib import Path
+
 import cv2
 import numpy as np
-
-# ============================================================
-# CONFIGURATION
-# ============================================================
 
 FEATURE_SIZE = 256
 MAX_IMAGE_SIZE = 512
 
 
-# ============================================================
-# IMAGE LOADING
-# ============================================================
+def normalize_vector(vector):
+    vector = np.asarray(vector, dtype=np.float32).flatten()
+
+    norm = float(np.linalg.norm(vector))
+
+    if norm < 1e-8:
+        return np.zeros_like(vector, dtype=np.float32)
+
+    return (vector / norm).astype(np.float32)
 
 
 def load_grayscale_image(image_path):
-    """
-    Load an image as grayscale and resize it to a manageable size.
-    """
-
-    image = cv2.imread(
-        image_path,
-        cv2.IMREAD_GRAYSCALE,
-    )
+    image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
 
     if image is None:
         raise ValueError(f"Could not read image: {image_path}")
 
-    height, width = image.shape
+    height, width = image.shape[:2]
 
-    largest_side = max(
-        height,
-        width,
-    )
+    largest_side = max(height, width)
 
     if largest_side > MAX_IMAGE_SIZE:
+        scale = MAX_IMAGE_SIZE / float(largest_side)
 
-        scale = MAX_IMAGE_SIZE / largest_side
-
-        new_width = max(
-            1,
-            int(width * scale),
-        )
-
-        new_height = max(
-            1,
-            int(height * scale),
-        )
+        new_width = max(1, int(width * scale))
+        new_height = max(1, int(height * scale))
 
         image = cv2.resize(
             image,
-            (
-                new_width,
-                new_height,
-            ),
+            (new_width, new_height),
             interpolation=cv2.INTER_AREA,
         )
 
     return image
 
 
-# ============================================================
-# VECTOR NORMALIZATION
-# ============================================================
-
-
-def normalize_vector(vector):
+def crop_to_design(gray):
     """
-    L2-normalize a feature vector.
+    Attempts to remove large empty borders/background.
+
+    This is intentionally lightweight and does not use rembg.
     """
 
-    vector = np.asarray(
-        vector,
-        dtype=np.float32,
-    )
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
 
-    norm = np.linalg.norm(vector)
-
-    if norm < 1e-8:
-        return vector
-
-    return vector / norm
-
-
-# ============================================================
-# FIXED FEATURE SIZE
-# ============================================================
-
-
-def resize_feature_vector(
-    feature,
-    size=FEATURE_SIZE,
-):
-    """
-    Make sure every image produces exactly
-    the same feature-vector length.
-    """
-
-    feature = np.asarray(
-        feature,
-        dtype=np.float32,
-    ).flatten()
-
-    if len(feature) == size:
-        return feature
-
-    if len(feature) > size:
-        return feature[:size]
-
-    output = np.zeros(
-        size,
-        dtype=np.float32,
-    )
-
-    output[: len(feature)] = feature
-
-    return output
-
-
-# ============================================================
-# SHAPE FEATURES
-# ============================================================
-
-
-def extract_shape_features(
-    gray,
-):
-    """
-    Extract basic shape and contour information.
-
-    These features are intentionally independent
-    of jewellery colour.
-    """
-
-    blurred = cv2.GaussianBlur(
-        gray,
-        (5, 5),
-        0,
-    )
-
-    _, threshold = cv2.threshold(
+    edges = cv2.Canny(
         blurred,
-        0,
-        255,
-        cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+        40,
+        120,
+    )
+
+    kernel = np.ones((5, 5), np.uint8)
+
+    edges = cv2.dilate(
+        edges,
+        kernel,
+        iterations=2,
     )
 
     contours, _ = cv2.findContours(
-        threshold,
+        edges,
         cv2.RETR_EXTERNAL,
         cv2.CHAIN_APPROX_SIMPLE,
     )
 
-    contours = sorted(
-        contours,
-        key=cv2.contourArea,
-        reverse=True,
-    )
+    if not contours:
+        return gray
 
-    features = []
+    height, width = gray.shape
 
-    image_area = gray.shape[0] * gray.shape[1]
+    image_area = float(max(1, height * width))
 
-    for contour in contours[:5]:
+    candidates = []
+
+    for contour in contours:
 
         area = cv2.contourArea(contour)
 
-        perimeter = cv2.arcLength(
-            contour,
-            True,
+        if area < image_area * 0.002:
+            continue
+
+        x, y, contour_width, contour_height = cv2.boundingRect(contour)
+
+        box_area = contour_width * contour_height
+
+        if box_area < image_area * 0.01:
+            continue
+
+        candidates.append(
+            (
+                box_area,
+                x,
+                y,
+                contour_width,
+                contour_height,
+            )
         )
 
-        x, y, width, height = cv2.boundingRect(contour)
+    if not candidates:
+        return gray
 
-        area_ratio = area / image_area if image_area > 0 else 0.0
+    _, x, y, crop_width, crop_height = max(
+        candidates,
+        key=lambda item: item[0],
+    )
 
-        aspect_ratio = width / height if height > 0 else 0.0
+    padding = int(max(crop_width, crop_height) * 0.08)
 
-        circularity = (
-            (4.0 * np.pi * area) / (perimeter * perimeter) if perimeter > 0 else 0.0
-        )
+    x1 = max(0, x - padding)
+    y1 = max(0, y - padding)
 
-        extent = area / (width * height) if width > 0 and height > 0 else 0.0
+    x2 = min(
+        width,
+        x + crop_width + padding,
+    )
 
-        features.extend(
-            [
-                area_ratio,
-                aspect_ratio,
-                circularity,
-                extent,
-            ]
-        )
+    y2 = min(
+        height,
+        y + crop_height + padding,
+    )
 
-    while len(features) < 20:
-        features.append(0.0)
+    cropped = gray[y1:y2, x1:x2]
 
-    return np.asarray(
-        features[:20],
-        dtype=np.float32,
+    if cropped.size < 100:
+        return gray
+
+    return cropped
+
+
+def resize_flat(image, width, height):
+    resized = cv2.resize(
+        image,
+        (width, height),
+        interpolation=cv2.INTER_AREA,
+    )
+
+    return (resized.astype(np.float32) / 255.0).flatten()
+
+
+def extract_intensity_features(gray):
+    """
+    64 values.
+    """
+
+    return resize_flat(
+        gray,
+        8,
+        8,
     )
 
 
-# ============================================================
-# EDGE FEATURES
-# ============================================================
-
-
-def extract_edge_features(
-    gray,
-):
+def extract_edge_features(gray):
     """
-    Extract edge structure at multiple scales.
+    64 values.
     """
 
     edges = cv2.Canny(
         gray,
-        50,
-        150,
+        40,
+        120,
     )
 
-    features = []
-
-    for size in [
-        (16, 16),
-        (32, 32),
-    ]:
-
-        resized = cv2.resize(
-            edges,
-            size,
-            interpolation=cv2.INTER_AREA,
-        )
-
-        resized = resized.astype(np.float32) / 255.0
-
-        features.append(resized.flatten())
-
-    return np.concatenate(features)
+    return resize_flat(
+        edges,
+        8,
+        8,
+    )
 
 
-# ============================================================
-# GRAYSCALE STRUCTURE
-# ============================================================
-
-
-def extract_intensity_features(
-    gray,
-):
+def extract_gradient_features(gray):
     """
-    Extract grayscale structure.
-
-    This deliberately avoids RGB/color features so
-    gold and prototype versions can match.
-    """
-
-    features = []
-
-    for size in [
-        (16, 16),
-        (32, 32),
-    ]:
-
-        resized = cv2.resize(
-            gray,
-            size,
-            interpolation=cv2.INTER_AREA,
-        )
-
-        resized = resized.astype(np.float32) / 255.0
-
-        features.append(resized.flatten())
-
-    return np.concatenate(features)
-
-
-# ============================================================
-# GRADIENT FEATURES
-# ============================================================
-
-
-def extract_gradient_features(
-    gray,
-):
-    """
-    Extract gradient/texture structure.
+    64 values.
     """
 
     gx = cv2.Sobel(
@@ -308,77 +209,190 @@ def extract_gradient_features(
         gy,
     )
 
-    magnitude = cv2.resize(
+    minimum, maximum, _, _ = cv2.minMaxLoc(magnitude)
+
+    if maximum > minimum:
+
+        magnitude = (magnitude - minimum) / (maximum - minimum)
+
+    else:
+
+        magnitude = np.zeros_like(magnitude)
+
+    magnitude = (magnitude * 255.0).astype(np.uint8)
+
+    return resize_flat(
         magnitude,
-        (32, 32),
-        interpolation=cv2.INTER_AREA,
+        8,
+        8,
     )
 
-    magnitude = cv2.normalize(
-        magnitude,
-        None,
-        0.0,
-        1.0,
-        cv2.NORM_MINMAX,
+
+def extract_shape_features(gray):
+    """
+    64 values.
+
+    Uses contour geometry and Hu moments.
+    """
+
+    features = []
+
+    blurred = cv2.GaussianBlur(
+        gray,
+        (5, 5),
+        0,
     )
 
-    return magnitude.flatten().astype(np.float32)
+    _, threshold = cv2.threshold(
+        blurred,
+        0,
+        255,
+        cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+    )
+
+    contour_sets = []
+
+    contour_sets.append(
+        cv2.findContours(
+            threshold,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )[0]
+    )
+
+    inverted = cv2.bitwise_not(threshold)
+
+    contour_sets.append(
+        cv2.findContours(
+            inverted,
+            cv2.RETR_EXTERNAL,
+            cv2.CHAIN_APPROX_SIMPLE,
+        )[0]
+    )
+
+    contours = []
+
+    for contour_set in contour_sets:
+        contours.extend(contour_set)
+
+    contours = sorted(
+        contours,
+        key=cv2.contourArea,
+        reverse=True,
+    )
+
+    height, width = gray.shape
+
+    image_area = float(max(1, height * width))
+
+    for contour in contours[:5]:
+
+        area = float(cv2.contourArea(contour))
+
+        perimeter = float(
+            cv2.arcLength(
+                contour,
+                True,
+            )
+        )
+
+        x, y, contour_width, contour_height = cv2.boundingRect(contour)
+
+        area_ratio = area / image_area
+
+        aspect_ratio = contour_width / float(max(1, contour_height))
+
+        circularity = (
+            (4.0 * np.pi * area) / (perimeter * perimeter) if perimeter > 1e-8 else 0.0
+        )
+
+        extent = area / float(
+            max(
+                1,
+                contour_width * contour_height,
+            )
+        )
+
+        features.extend(
+            [
+                area_ratio,
+                min(
+                    aspect_ratio,
+                    5.0,
+                )
+                / 5.0,
+                min(
+                    circularity,
+                    1.0,
+                ),
+                min(
+                    extent,
+                    1.0,
+                ),
+            ]
+        )
+
+    moments = cv2.moments(threshold)
+
+    hu = cv2.HuMoments(moments).flatten()
+
+    for value in hu:
+
+        value = -np.sign(value) * np.log10(abs(value) + 1e-12)
+
+        features.append(
+            float(
+                np.clip(
+                    value / 20.0,
+                    -1.0,
+                    1.0,
+                )
+            )
+        )
+
+    features = np.asarray(
+        features[:27],
+        dtype=np.float32,
+    )
+
+    output = np.zeros(
+        64,
+        dtype=np.float32,
+    )
+
+    output[: len(features)] = features
+
+    return output
 
 
-# ============================================================
-# MAIN EMBEDDING
-# ============================================================
-
-
-def create_embedding(
-    image_path,
-):
-    """
-    Create a lightweight visual feature vector.
-
-    IMPORTANT:
-    - No PyTorch
-    - No Transformers
-    - No DINOv2
-    - CPU only
-    - Low memory
-    """
+def create_embedding(image_path):
 
     gray = load_grayscale_image(image_path)
 
-    intensity_features = extract_intensity_features(gray)
+    gray = crop_to_design(gray)
 
-    edge_features = extract_edge_features(gray)
+    intensity = extract_intensity_features(gray)
 
-    gradient_features = extract_gradient_features(gray)
+    edges = extract_edge_features(gray)
 
-    shape_features = extract_shape_features(gray)
+    gradient = extract_gradient_features(gray)
 
-    combined = np.concatenate(
+    shape = extract_shape_features(gray)
+
+    vector = np.concatenate(
         [
-            intensity_features,
-            edge_features,
-            gradient_features,
-            shape_features,
+            intensity,
+            edges,
+            gradient,
+            shape,
         ]
-    )
+    ).astype(np.float32)
 
-    combined = resize_feature_vector(
-        combined,
-        FEATURE_SIZE,
-    )
+    if vector.shape != (256,):
+        raise ValueError(f"Invalid embedding size: {vector.shape}")
 
-    combined = normalize_vector(combined)
-
-    return combined.astype(np.float32)
+    return normalize_vector(vector)
 
 
-# ============================================================
-# COMPATIBILITY FUNCTION
-# ============================================================
-
-
-def get_embedding(
-    image_path,
-):
+def get_embedding(image_path):
     return create_embedding(image_path)

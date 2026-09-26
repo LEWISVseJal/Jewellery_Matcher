@@ -1,71 +1,75 @@
 import os
 import gc
 import numpy as np
-import torch
-
-from PIL import Image, ImageOps, ImageFilter
-from transformers import AutoImageProcessor, AutoModel
-
 
 # ============================================================
 # LOCAL MODEL CACHE
 # ============================================================
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 PROJECT_DIR = os.path.dirname(BASE_DIR)
 
-HF_CACHE = os.path.join(
-    PROJECT_DIR,
-    "model_cache",
-    "huggingface"
-)
+HF_CACHE = os.path.join(PROJECT_DIR, "model_cache", "huggingface")
 
 os.environ["HF_HOME"] = HF_CACHE
 os.environ["HF_HUB_CACHE"] = os.path.join(HF_CACHE, "hub")
 
 
 # ============================================================
-# MODEL
+# MODEL CONFIGURATION
 # ============================================================
 
 MODEL_NAME = "facebook/dinov2-base"
 
-DEVICE = torch.device(
-    "cuda" if torch.cuda.is_available() else "cpu"
-)
-
-print(f"[EMBEDDING] Device: {DEVICE}")
-print(f"[EMBEDDING] Model: {MODEL_NAME}")
-
-
-_processor = None
 _model = None
+_processor = None
+
+
+# ============================================================
+# LAZY MODEL LOADING
+# ============================================================
 
 
 def _load_model():
-    global _processor
+
     global _model
+    global _processor
 
-    if _processor is None or _model is None:
+    if _model is not None and _processor is not None:
+        return _processor, _model
 
-        print("[EMBEDDING] Loading DINOv2...")
+    print()
+    print("=" * 60)
+    print("[EMBEDDING] Loading DINOv2...")
+    print("=" * 60)
 
-        _processor = AutoImageProcessor.from_pretrained(
-            MODEL_NAME,
-            cache_dir=HF_CACHE,
-            local_files_only=False
-        )
+    # Import heavy libraries ONLY when the model is required.
+    import torch
+    from transformers import (
+        AutoImageProcessor,
+        AutoModel,
+    )
 
-        _model = AutoModel.from_pretrained(
-            MODEL_NAME,
-            cache_dir=HF_CACHE,
-            local_files_only=False
-        )
+    # Force CPU on Render.
+    device = torch.device("cpu")
 
-        _model.to(DEVICE)
-        _model.eval()
+    print(f"[EMBEDDING] Device: {device}")
+    print(f"[EMBEDDING] Model: {MODEL_NAME}")
 
-        print("[EMBEDDING] DINOv2 loaded.")
+    _processor = AutoImageProcessor.from_pretrained(
+        MODEL_NAME, cache_dir=HF_CACHE, local_files_only=False
+    )
+
+    _model = AutoModel.from_pretrained(
+        MODEL_NAME, cache_dir=HF_CACHE, local_files_only=False
+    )
+
+    _model.to(device)
+
+    _model.eval()
+
+    print("[EMBEDDING] DINOv2 loaded.")
 
     return _processor, _model
 
@@ -74,36 +78,41 @@ def _load_model():
 # COLOUR-INVARIANT IMAGE PREPARATION
 # ============================================================
 
+
 def prepare_design_image(image_path):
-    """
-    Converts jewellery image into a colour-invariant representation.
 
-    The image is:
-        1. Loaded as RGB
-        2. Converted to grayscale
-        3. Contrast enhanced
-        4. Converted back to RGB
-
-    DINOv2 therefore sees design/structure much more strongly
-    than the original material colour.
-    """
+    from PIL import (
+        Image,
+        ImageOps,
+        ImageFilter,
+    )
 
     image = Image.open(image_path).convert("RGB")
 
-    # Convert to grayscale
+    # --------------------------------------------------------
+    # Grayscale
+    # --------------------------------------------------------
+
     image = ImageOps.grayscale(image)
 
-    # Improve contrast
+    # --------------------------------------------------------
+    # Contrast
+    # --------------------------------------------------------
+
     image = ImageOps.autocontrast(image)
 
+    # --------------------------------------------------------
     # Slight sharpening
+    # --------------------------------------------------------
+
     image = image.filter(ImageFilter.SHARPEN)
 
-    # DINO expects 3 channels
-    image = Image.merge(
-        "RGB",
-        (image, image, image)
-    )
+    # --------------------------------------------------------
+    # Convert back to RGB
+    # DINOv2 expects 3 channels.
+    # --------------------------------------------------------
+
+    image = Image.merge("RGB", (image, image, image))
 
     return image
 
@@ -112,61 +121,69 @@ def prepare_design_image(image_path):
 # DINO EMBEDDING
 # ============================================================
 
-def create_embedding(image_path):
-    """
-    Creates a normalized 768-dimensional DINOv2 embedding.
 
-    IMPORTANT:
-    The image is converted to grayscale before embedding.
-    """
+def create_embedding(image_path):
 
     print()
-    print("Creating colour-invariant embedding:")
+    print("[EMBEDDING] Creating colour-invariant embedding:")
+
     print(image_path)
+
+    # --------------------------------------------------------
+    # Lazy-load model
+    # --------------------------------------------------------
 
     processor, model = _load_model()
 
+    # Import torch only when needed.
+    import torch
+
+    device = torch.device("cpu")
+
+    # --------------------------------------------------------
+    # Prepare image
+    # --------------------------------------------------------
+
     image = prepare_design_image(image_path)
 
-    inputs = processor(
-        images=image,
-        return_tensors="pt"
-    )
+    # --------------------------------------------------------
+    # Processor
+    # --------------------------------------------------------
 
-    inputs = {
-        key: value.to(DEVICE)
-        for key, value in inputs.items()
-    }
+    inputs = processor(images=image, return_tensors="pt")
 
-    with torch.no_grad():
+    inputs = {key: value.to(device) for key, value in inputs.items()}
+
+    # --------------------------------------------------------
+    # Inference
+    # --------------------------------------------------------
+
+    with torch.inference_mode():
 
         outputs = model(**inputs)
 
         # CLS token
         embedding = outputs.last_hidden_state[:, 0, :]
 
-        # L2 normalize
-        embedding = torch.nn.functional.normalize(
-            embedding,
-            p=2,
-            dim=1
-        )
+        # L2 normalization
+        embedding = torch.nn.functional.normalize(embedding, p=2, dim=1)
 
-    embedding = embedding.cpu().numpy()[0].astype(
-        np.float32
-    )
+        # Copy to CPU immediately
+        embedding = embedding.detach().cpu().numpy()[0].astype(np.float32)
 
-    print("Colour-invariant embedding created.")
-    print(f"Shape: {embedding.shape}")
-
+    # --------------------------------------------------------
     # Cleanup
+    # --------------------------------------------------------
+
     del inputs
     del outputs
+    del image
 
     gc.collect()
 
-    if DEVICE.type == "cuda":
-        torch.cuda.empty_cache()
+    print("[EMBEDDING] Embedding created.")
+
+    print(f"[EMBEDDING] Shape: {embedding.shape}")
 
     return embedding
 
@@ -175,5 +192,7 @@ def create_embedding(image_path):
 # COMPATIBILITY ALIAS
 # ============================================================
 
+
 def get_embedding(image_path):
+
     return create_embedding(image_path)

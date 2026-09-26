@@ -2,17 +2,9 @@ import os
 import json
 import numpy as np
 
-from backend.services.embedding import (
-    create_embedding,
-)
-
-# ============================================================
-# PATHS
-# ============================================================
+from backend.services.embedding import create_embedding
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-PROJECT_DIR = os.path.dirname(BASE_DIR)
 
 DATABASE_DIR = os.path.join(
     BASE_DIR,
@@ -30,123 +22,63 @@ INDEX_FILE = os.path.join(
 )
 
 
-# ============================================================
-# CATALOGUE
-# ============================================================
-
-
 def load_catalogue():
 
     if not os.path.exists(CATALOGUE_FILE):
-
         return []
 
     with open(
         CATALOGUE_FILE,
         "r",
         encoding="utf-8",
-    ) as file:
+    ) as f:
 
-        data = json.load(file)
+        data = json.load(f)
 
-    if isinstance(
-        data,
-        dict,
-    ):
+    if isinstance(data, dict):
 
         if "jewellery" in data:
-
             return data["jewellery"]
 
         if "items" in data:
-
             return data["items"]
 
-    if isinstance(
-        data,
-        list,
-    ):
-
-        return data
-
-    return []
+    return data
 
 
-# ============================================================
-# ID
-# ============================================================
-
-
-def get_item_id(
-    item,
-):
+def get_collection(item):
 
     return str(
         item.get(
-            "id",
-            item.get(
-                "design_id",
-                "",
-            ),
+            "collection",
+            item.get("category", ""),
         )
-    )
+    ).lower()
 
 
-# ============================================================
-# COLLECTION
-# ============================================================
-
-
-def get_collection(
-    item,
-):
-
-    return (
-        str(
-            item.get(
-                "collection",
-                item.get(
-                    "category",
-                    "",
-                ),
-            )
-        )
-        .strip()
-        .lower()
-    )
-
-
-# ============================================================
-# IMAGE PATH
-# ============================================================
-
-
-def get_image_path(
-    item,
-):
+def get_image_path(item):
 
     image_path = item.get("image_path")
 
     if not image_path:
-
         image_path = item.get("image")
 
     if not image_path:
-
         image_path = item.get("path")
 
     if not image_path:
-
         return None
 
-    image_path = str(image_path).replace(
+    image_path = image_path.replace(
         "\\",
         "/",
     )
 
+    project_dir = os.path.dirname(BASE_DIR)
+
     candidates = [
         os.path.join(
-            PROJECT_DIR,
+            project_dir,
             image_path,
         ),
         os.path.join(
@@ -158,12 +90,11 @@ def get_image_path(
     for candidate in candidates:
 
         if os.path.exists(candidate):
-
             return candidate
 
     filename = os.path.basename(image_path)
 
-    for root, _, files in os.walk(PROJECT_DIR):
+    for root, _, files in os.walk(project_dir):
 
         if filename in files:
 
@@ -175,22 +106,15 @@ def get_image_path(
     return None
 
 
-# ============================================================
-# BUILD
-# ============================================================
-
-
 def main():
 
     print("=" * 70)
-
     print("JEWELMATCH AI - BUILD LIGHTWEIGHT FEATURE INDEX")
-
     print("=" * 70)
 
     catalogue = load_catalogue()
 
-    print(f"Catalogue items: " f"{len(catalogue)}")
+    print(f"Catalogue items: {len(catalogue)}")
 
     features = []
     ids = []
@@ -198,22 +122,26 @@ def main():
 
     failed = []
 
-    total = len(catalogue)
-
-    for number, item in enumerate(
+    for index, item in enumerate(
         catalogue,
         start=1,
     ):
 
-        item_id = get_item_id(item)
+        item_id = str(
+            item.get(
+                "id",
+                item.get(
+                    "design_id",
+                    index,
+                ),
+            )
+        )
 
         collection = get_collection(item)
 
         image_path = get_image_path(item)
 
-        print()
-
-        print(f"[{number}/{total}] " f"{item_id} | " f"{collection}")
+        print(f"[{index}/{len(catalogue)}] " f"{item_id} | {collection}")
 
         if not image_path:
 
@@ -233,7 +161,7 @@ def main():
 
             collections.append(collection)
 
-            print(f"  OK: " f"{embedding.shape}")
+            print(f"  OK: {embedding.shape}")
 
         except Exception as exc:
 
@@ -243,57 +171,44 @@ def main():
 
     if not features:
 
-        raise RuntimeError("No catalogue features could be created.")
+        raise RuntimeError("No catalogue features were created.")
 
     feature_matrix = np.vstack(features).astype(np.float32)
-
-    os.makedirs(
-        DATABASE_DIR,
-        exist_ok=True,
-    )
 
     np.savez_compressed(
         INDEX_FILE,
         features=feature_matrix,
-        ids=np.asarray(
+        ids=np.array(
             ids,
             dtype=str,
         ),
-        collections=np.asarray(
+        collections=np.array(
             collections,
             dtype=str,
         ),
     )
 
     print()
-
+    print("=" * 70)
+    print("INDEX CREATED")
     print("=" * 70)
 
-    print("LIGHTWEIGHT INDEX CREATED")
+    print(f"Items indexed: {len(ids)}")
 
-    print("=" * 70)
+    print(f"Feature shape: {feature_matrix.shape}")
 
-    print(f"Items indexed: " f"{len(ids)}")
+    print(f"Failed items: {len(failed)}")
 
-    print(f"Feature matrix: " f"{feature_matrix.shape}")
-
-    print(f"Failed items: " f"{len(failed)}")
-
-    print(f"Index file:")
-
-    print(INDEX_FILE)
+    print(f"Saved to: {INDEX_FILE}")
 
     if failed:
 
         print()
-
-        print("Failed item IDs:")
+        print("Failed IDs:")
 
         for item_id in failed:
-
             print(f" - {item_id}")
 
 
 if __name__ == "__main__":
-
     main()

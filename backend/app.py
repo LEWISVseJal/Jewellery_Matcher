@@ -7,7 +7,8 @@ import os
 import json
 import uuid
 import shutil
-
+import sys
+import subprocess
 import numpy as np
 
 from flask import (
@@ -372,7 +373,7 @@ def save_collection_embeddings(collection, embeddings):
     print("[APP] Embedding count:", len(embeddings))
 
 
-def rebuild_collection_index(collection):
+def rebuild_lightweight_index(collection):
 
     collection = str(collection).lower().strip()
 

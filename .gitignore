@@ -20,9 +20,6 @@ huggingface/
 transformers/
 sentence_transformers/
 
-# Generated segmented catalogue
-backend/database/segmented_catalogue/
-
 # Uploaded images during runtime
 backend/uploads/*
 !backend/uploads/.gitkeep

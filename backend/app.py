@@ -66,7 +66,7 @@ VALID_COLLECTIONS = {
 
 # DINOv2-base embedding size.
 # If later changed to DINOv2-small, change to 384.
-EMBEDDING_DIMENSION = 768
+EMBEDDING_DIMENSION = 384
 
 
 # ============================================================

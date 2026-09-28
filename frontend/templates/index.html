@@ -26,7 +26,11 @@
             <div class="brand-ai">AI Jewellery Search</div>
           </div>
         </a>
-        <a href="/catalogue"> Catalogue </a>
+
+        <a href="/catalogue" class="catalogue-button">
+          <span>▦</span>
+          Catalogue
+        </a>
 
         <a href="/add-jewellery" class="add-button">
           <span>＋</span>
@@ -55,7 +59,53 @@
 
       <section class="search-card">
         <div class="search-card-inner">
-          <!-- Upload area -->
+          <!-- ================= SEARCH MODE ================= -->
+
+          <div class="search-mode-section">
+            <div class="search-mode-label">Search Mode</div>
+
+            <div class="search-mode-options">
+              <!-- ALL -->
+
+              <label class="search-mode-option active">
+                <input type="radio" name="searchMode" value="all" checked />
+
+                <span class="search-mode-content">
+                  <span class="search-mode-title"> Search from All </span>
+                </span>
+              </label>
+
+              <!-- GOLD TO PROTOTYPE -->
+
+              <label class="search-mode-option">
+                <input
+                  type="radio"
+                  name="searchMode"
+                  value="gold_to_prototype"
+                />
+
+                <span class="search-mode-content">
+                  <span class="search-mode-title"> Gold → Prototype </span>
+                </span>
+              </label>
+
+              <!-- PROTOTYPE TO GOLD -->
+
+              <label class="search-mode-option">
+                <input
+                  type="radio"
+                  name="searchMode"
+                  value="prototype_to_gold"
+                />
+
+                <span class="search-mode-content">
+                  <span class="search-mode-title"> Prototype → Gold </span>
+                </span>
+              </label>
+            </div>
+          </div>
+
+          <!-- ================= UPLOAD AREA ================= -->
 
           <div id="uploadArea" class="upload-area">
             <input
@@ -109,7 +159,7 @@
             </div>
           </div>
 
-          <!-- Search button -->
+          <!-- ================= SEARCH BUTTON ================= -->
 
           <div class="match-action">
             <button
@@ -126,11 +176,11 @@
             </button>
           </div>
 
-          <!-- Error -->
+          <!-- ================= ERROR ================= -->
 
           <div id="error" class="message error-message hidden"></div>
 
-          <!-- Loading -->
+          <!-- ================= LOADING ================= -->
 
           <div id="loading" class="loading-box hidden">
             <div class="loading-spinner"></div>
@@ -205,6 +255,32 @@
       <p>JewelMatch AI · Jewellery Visual Search</p>
     </footer>
 
+    <!-- ================= JAVASCRIPT ================= -->
+
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+
+    <!-- ================= SEARCH MODE UI ================= -->
+
+    <script>
+      document.addEventListener("DOMContentLoaded", function () {
+        const searchModeOptions = document.querySelectorAll(
+          ".search-mode-option",
+        );
+
+        searchModeOptions.forEach(function (option) {
+          const radio = option.querySelector('input[type="radio"]');
+
+          radio.addEventListener("change", function () {
+            searchModeOptions.forEach(function (item) {
+              item.classList.remove("active");
+            });
+
+            if (radio.checked) {
+              option.classList.add("active");
+            }
+          });
+        });
+      });
+    </script>
   </body>
 </html>

@@ -1,18 +1,21 @@
 /* ============================================================
    JEWELMATCH AI
-   MAIN PAGE LOGIC
+   MAIN SEARCH PAGE
    ============================================================ */
 
 document.addEventListener("DOMContentLoaded", () => {
   console.log("JewelMatch AI - App loaded");
 
-  /* ========================================================
-       ELEMENTS
-    ======================================================== */
+  // ========================================================
+  // ELEMENTS
+  // ========================================================
 
   const uploadArea = document.getElementById("uploadArea");
+
   const uploadContent = document.getElementById("uploadContent");
+
   const imageInput = document.getElementById("imageInput");
+
   const browseButton = document.getElementById("browseButton");
 
   const previewContainer = document.getElementById("previewContainer");
@@ -41,44 +44,42 @@ document.addEventListener("DOMContentLoaded", () => {
 
   const resultsContainer = document.getElementById("results");
 
-  /* ========================================================
-       STATE
-    ======================================================== */
+  // ========================================================
+  // SEARCH MODE ELEMENTS
+  // ========================================================
+
+  const searchModeInputs = document.querySelectorAll(
+    'input[name="searchMode"]',
+  );
+
+  // ========================================================
+  // STATE
+  // ========================================================
 
   let selectedFile = null;
 
-  /* ========================================================
-       SAFETY CHECK
-    ======================================================== */
+  let previewObjectUrl = null;
 
-  if (!imageInput) {
-    console.error("JewelMatch: imageInput element not found.");
-    return;
-  }
-
-  /* ========================================================
-       HELPERS
-    ======================================================== */
+  // ========================================================
+  // BASIC HELPERS
+  // ========================================================
 
   function showElement(element) {
-    if (!element) {
-      return;
+    if (element) {
+      element.classList.remove("hidden");
     }
-
-    element.classList.remove("hidden");
   }
 
   function hideElement(element) {
-    if (!element) {
-      return;
+    if (element) {
+      element.classList.add("hidden");
     }
-
-    element.classList.add("hidden");
   }
 
   function showError(message) {
     if (!errorBox) {
       console.error(message);
+
       return;
     }
 
@@ -97,24 +98,6 @@ document.addEventListener("DOMContentLoaded", () => {
     hideElement(errorBox);
   }
 
-  function formatFileSize(bytes) {
-    if (!bytes || bytes <= 0) {
-      return "0 KB";
-    }
-
-    const units = ["Bytes", "KB", "MB", "GB"];
-
-    let size = bytes;
-    let unitIndex = 0;
-
-    while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024;
-      unitIndex++;
-    }
-
-    return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
-  }
-
   function escapeHtml(value) {
     if (value === null || value === undefined) {
       return "";
@@ -128,18 +111,87 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/'/g, "&#039;");
   }
 
+  function formatFileSize(bytes) {
+    if (!bytes || bytes <= 0) {
+      return "0 KB";
+    }
+
+    const units = ["Bytes", "KB", "MB", "GB"];
+
+    let size = bytes;
+
+    let unitIndex = 0;
+
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+
+      unitIndex++;
+    }
+
+    return `${size.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+  }
+
+  // ========================================================
+  // SEARCH MODE
+  // ========================================================
+
+  function getSearchMode() {
+    for (const input of searchModeInputs) {
+      if (input.checked) {
+        return input.value;
+      }
+    }
+
+    return "all";
+  }
+
+  function getSearchModeLabel(mode) {
+    if (mode === "gold_to_prototype") {
+      return "Gold → Prototype";
+    }
+
+    if (mode === "prototype_to_gold") {
+      return "Prototype → Gold";
+    }
+
+    return "All";
+  }
+
+  function updateSearchModeUI() {
+    const mode = getSearchMode();
+
+    console.log("Search mode:", mode);
+
+    console.log("Search mode label:", getSearchModeLabel(mode));
+  }
+
+  searchModeInputs.forEach((input) => {
+    input.addEventListener("change", () => {
+      updateSearchModeUI();
+
+      hideResults();
+
+      clearError();
+    });
+  });
+
+  // ========================================================
+  // RESULT HELPERS
+  // ========================================================
+
   function getSimilarity(result) {
     if (!result || typeof result !== "object") {
       return 0;
     }
 
-    const possibleValues = [
-      result.similarity,
+    const values = [
       result.score,
+      result.match_score,
       result.final_score,
+      result.similarity,
     ];
 
-    for (const value of possibleValues) {
+    for (const value of values) {
       const number = Number(value);
 
       if (Number.isFinite(number)) {
@@ -156,14 +208,6 @@ document.addEventListener("DOMContentLoaded", () => {
     if (!Number.isFinite(score)) {
       return 0;
     }
-
-    /*
-     * Most backend responses return similarity
-     * between 0 and 1.
-     *
-     * If backend already sends 0-100,
-     * keep it unchanged.
-     */
 
     if (score <= 1) {
       score *= 100;
@@ -183,12 +227,7 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function getResultCollection(result) {
-    return (
-      result.collection ||
-      result.source_collection ||
-      result.target_collection ||
-      ""
-    );
+    return result.collection || result.target_collection || "";
   }
 
   function getResultType(result) {
@@ -200,10 +239,6 @@ document.addEventListener("DOMContentLoaded", () => {
   }
 
   function getResultImage(result) {
-    /*
-     * Backend may return any of these names.
-     */
-
     const imageUrl =
       result.image_url ||
       result.image ||
@@ -216,10 +251,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return "";
     }
 
-    /*
-     * Already a web URL.
-     */
-
     if (
       imageUrl.startsWith("/") ||
       imageUrl.startsWith("http://") ||
@@ -229,38 +260,26 @@ document.addEventListener("DOMContentLoaded", () => {
       return imageUrl;
     }
 
-    /*
-     * Windows/local paths should not be used directly
-     * in the browser. Try the catalogue endpoint.
-     */
-
     const normalized = imageUrl.replace(/\\/g, "/").replace(/^\/+/, "");
 
-    const parts = normalized.split("/");
-
-    const filename = parts[parts.length - 1];
-
-    /*
-     * If collection exists, use the backend
-     * catalogue image endpoint.
-     */
+    const filename = normalized.split("/").pop();
 
     const collection = getResultCollection(result).toLowerCase();
 
     if (collection === "gold" || collection === "prototype") {
-      return `/catalogue/${collection}/${encodeURIComponent(filename)}`;
+      return (
+        `/catalogue-image/` +
+        `${collection}/` +
+        `${encodeURIComponent(filename)}`
+      );
     }
 
-    /*
-     * Fallback.
-     */
-
-    return `/catalogue/gold/${encodeURIComponent(filename)}`;
+    return `/catalogue-image/gold/` + `${encodeURIComponent(filename)}`;
   }
 
-  /* ========================================================
-       IMAGE VALIDATION
-    ======================================================== */
+  // ========================================================
+  // IMAGE VALIDATION
+  // ========================================================
 
   function validateImage(file) {
     if (!file) {
@@ -279,11 +298,6 @@ document.addEventListener("DOMContentLoaded", () => {
       };
     }
 
-    /*
-     * Keep frontend aligned with the current
-     * 20 MB project limit.
-     */
-
     const maxSize = 20 * 1024 * 1024;
 
     if (file.size > maxSize) {
@@ -299,9 +313,210 @@ document.addEventListener("DOMContentLoaded", () => {
     };
   }
 
-  /* ========================================================
-       SHOW SELECTED IMAGE
-    ======================================================== */
+  // ========================================================
+  // RESULT DISPLAY
+  // ========================================================
+
+  function hideResults() {
+    hideElement(resultsSection);
+
+    if (resultsContainer) {
+      resultsContainer.innerHTML = "";
+    }
+
+    if (bestMatchBadge) {
+      bestMatchBadge.textContent = "";
+    }
+  }
+
+  function displayNoMatch(data) {
+    if (resultsContainer) {
+      resultsContainer.innerHTML = `
+          <div class="no-results">
+
+            <h3>
+              No similar jewellery found
+            </h3>
+
+            <p>
+              ${escapeHtml(
+                data?.message ||
+                  "No reliable jewellery design match was found.",
+              )}
+            </p>
+
+          </div>
+        `;
+    }
+
+    if (bestMatchBadge) {
+      bestMatchBadge.textContent = "No match";
+    }
+
+    showElement(resultsSection);
+  }
+
+  function extractResults(data) {
+    if (!data) {
+      return [];
+    }
+
+    if (Array.isArray(data)) {
+      return data;
+    }
+
+    if (Array.isArray(data.results)) {
+      return data.results;
+    }
+
+    if (Array.isArray(data.matches)) {
+      return data.matches;
+    }
+
+    return [];
+  }
+
+  function displayResults(data) {
+    /*
+     * IMPORTANT:
+     * Never display candidates if
+     * backend says matched=false.
+     */
+
+    if (data && data.matched === false) {
+      displayNoMatch(data);
+
+      return;
+    }
+
+    const results = extractResults(data);
+
+    if (!results.length) {
+      displayNoMatch(data);
+
+      return;
+    }
+
+    results.sort((a, b) => getSimilarity(b) - getSimilarity(a));
+
+    const bestSimilarity = similarityPercentage(getSimilarity(results[0]));
+
+    if (bestMatchBadge) {
+      bestMatchBadge.textContent = `Best match ${bestSimilarity.toFixed(1)}%`;
+    }
+
+    if (!resultsContainer) {
+      return;
+    }
+
+    resultsContainer.innerHTML = "";
+
+    results.forEach((result, index) => {
+      resultsContainer.appendChild(createResultCard(result, index));
+    });
+
+    showElement(resultsSection);
+
+    setTimeout(() => {
+      resultsSection?.scrollIntoView({
+        behavior: "smooth",
+
+        block: "start",
+      });
+    }, 100);
+  }
+
+  function createResultCard(result, index) {
+    const card = document.createElement("article");
+
+    card.className = "result-card";
+
+    const name = escapeHtml(getResultName(result));
+
+    const collection = escapeHtml(getResultCollection(result));
+
+    const type = escapeHtml(getResultType(result));
+
+    const subtype = escapeHtml(getResultSubtype(result));
+
+    const similarity = similarityPercentage(getSimilarity(result));
+
+    const imageUrl = getResultImage(result);
+
+    const imageHtml = imageUrl
+      ? `
+            <img
+              src="${escapeHtml(imageUrl)}"
+              alt="${name}"
+              class="result-image"
+              loading="lazy"
+              onerror="
+                this.style.display='none';
+                this.parentElement.classList.add(
+                  'image-missing'
+                );
+              "
+            >
+          `
+      : `
+            <div class="image-missing">
+              <span>✦</span>
+            </div>
+          `;
+
+    const collectionHtml = collection
+      ? `
+            <span class="collection-badge">
+              ${collection}
+            </span>
+          `
+      : "";
+
+    const typeHtml = type
+      ? `
+            <p>
+              ${type}
+              ${subtype ? ` · ${subtype}` : ""}
+            </p>
+          `
+      : "";
+
+    card.innerHTML = `
+        <div class="result-image-wrapper">
+
+          ${imageHtml}
+
+          <div class="result-score">
+            ${similarity.toFixed(1)}%
+          </div>
+
+        </div>
+
+        <div class="result-info">
+
+          <h3
+            title="${name}"
+          >
+            ${name}
+          </h3>
+
+          ${typeHtml}
+
+          ${collectionHtml}
+
+        </div>
+      `;
+
+    if (index === 0) {
+      card.classList.add("best-result");
+    }
+
+    return card;
+  }
+
+  // ========================================================
+  // FILE SELECTION
+  // ========================================================
 
   function handleSelectedFile(file) {
     clearError();
@@ -322,23 +537,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
     selectedFile = file;
 
-    /*
-     * Create browser preview.
-     */
-
-    const objectUrl = URL.createObjectURL(file);
-
-    if (previewImage) {
-      previewImage.onload = () => {
-        URL.revokeObjectURL(objectUrl);
-      };
-
-      previewImage.src = objectUrl;
+    if (previewObjectUrl) {
+      URL.revokeObjectURL(previewObjectUrl);
     }
 
-    /*
-     * File information.
-     */
+    previewObjectUrl = URL.createObjectURL(file);
+
+    if (previewImage) {
+      previewImage.src = previewObjectUrl;
+    }
 
     if (fileName) {
       fileName.textContent = file.name;
@@ -348,97 +555,37 @@ document.addEventListener("DOMContentLoaded", () => {
       fileSize.textContent = formatFileSize(file.size);
     }
 
-    /*
-     * Switch upload area to preview.
-     */
+    hideElement(uploadContent);
 
-    if (uploadContent) {
-      hideElement(uploadContent);
-    }
-
-    if (previewContainer) {
-      showElement(previewContainer);
-    }
-
-    /*
-     * Enable match button.
-     */
+    showElement(previewContainer);
 
     if (matchButton) {
       matchButton.disabled = false;
     }
 
-    /*
-     * Hide old results.
-     */
-
     hideResults();
   }
 
-  /* ========================================================
-       RESET IMAGE
-    ======================================================== */
-
-  function resetImage() {
-    selectedFile = null;
-
-    if (imageInput) {
-      imageInput.value = "";
-    }
-
-    if (previewImage) {
-      previewImage.src = "";
-    }
-
-    if (fileName) {
-      fileName.textContent = "";
-    }
-
-    if (fileSize) {
-      fileSize.textContent = "";
-    }
-
-    if (previewContainer) {
-      hideElement(previewContainer);
-    }
-
-    if (uploadContent) {
-      showElement(uploadContent);
-    }
-
-    if (matchButton) {
-      matchButton.disabled = true;
-    }
-
-    hideResults();
-
-    clearError();
-  }
-
-  /* ========================================================
-       BROWSE BUTTON
-    ======================================================== */
+  // ========================================================
+  // UPLOAD BUTTON
+  // ========================================================
 
   if (browseButton) {
     browseButton.addEventListener("click", (event) => {
       event.preventDefault();
+
       event.stopPropagation();
 
       imageInput.click();
     });
   }
 
-  /* ========================================================
-       UPLOAD AREA CLICK
-    ======================================================== */
+  // ========================================================
+  // UPLOAD AREA
+  // ========================================================
 
   if (uploadArea) {
     uploadArea.addEventListener("click", (event) => {
-      /*
-       * Do not trigger another file dialog when
-       * clicking the browse button itself.
-       */
-
       if (
         event.target === browseButton ||
         browseButton?.contains(event.target)
@@ -446,46 +593,11 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      /*
-       * When an image is already selected,
-       * clicking the area should not unexpectedly
-       * replace it.
-       */
-
       if (!selectedFile) {
         imageInput.click();
       }
     });
-  }
 
-  /* ========================================================
-       FILE INPUT CHANGE
-    ======================================================== */
-
-  imageInput.addEventListener("change", (event) => {
-    const file = event.target.files?.[0];
-
-    handleSelectedFile(file);
-  });
-
-  /* ========================================================
-       CHANGE IMAGE
-    ======================================================== */
-
-  if (changeImageButton) {
-    changeImageButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-
-      imageInput.click();
-    });
-  }
-
-  /* ========================================================
-       DRAG OVER
-    ======================================================== */
-
-  if (uploadArea) {
     uploadArea.addEventListener("dragover", (event) => {
       event.preventDefault();
 
@@ -509,67 +621,63 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
-  /* ========================================================
-       HIDE RESULTS
-    ======================================================== */
+  // ========================================================
+  // FILE INPUT
+  // ========================================================
 
-  function hideResults() {
-    if (resultsSection) {
-      hideElement(resultsSection);
-    }
-
-    if (resultsContainer) {
-      resultsContainer.innerHTML = "";
-    }
-
-    if (bestMatchBadge) {
-      bestMatchBadge.textContent = "";
-    }
+  if (imageInput) {
+    imageInput.addEventListener("change", (event) => {
+      handleSelectedFile(event.target.files?.[0]);
+    });
   }
 
-  /* ========================================================
-       LOADING STATE
-    ======================================================== */
+  // ========================================================
+  // CHANGE IMAGE
+  // ========================================================
+
+  if (changeImageButton) {
+    changeImageButton.addEventListener("click", (event) => {
+      event.preventDefault();
+
+      event.stopPropagation();
+
+      imageInput.click();
+    });
+  }
+
+  // ========================================================
+  // LOADING STATE
+  // ========================================================
 
   function setLoadingState(isLoading) {
     if (!matchButton) {
       return;
     }
 
-    if (isLoading) {
-      matchButton.disabled = true;
+    matchButton.disabled = isLoading || !selectedFile;
 
+    if (isLoading) {
       if (matchButtonText) {
         matchButtonText.textContent = "Finding similar jewellery...";
       }
 
-      if (matchSpinner) {
-        showElement(matchSpinner);
-      }
+      showElement(matchSpinner);
 
-      if (loadingBox) {
-        showElement(loadingBox);
-      }
+      showElement(loadingBox);
     } else {
-      matchButton.disabled = !selectedFile;
-
       if (matchButtonText) {
         matchButtonText.textContent = "Find Similar Jewellery";
       }
 
-      if (matchSpinner) {
-        hideElement(matchSpinner);
-      }
+      hideElement(matchSpinner);
 
-      if (loadingBox) {
-        hideElement(loadingBox);
-      }
+      hideElement(loadingBox);
     }
   }
 
-  /* ========================================================
-       FETCH MATCH API
-    ======================================================== */
+  // ========================================================
+  // API
+  // ========================================================
 
   async function submitMatchRequest(formData) {
     let response;
@@ -577,17 +685,12 @@ document.addEventListener("DOMContentLoaded", () => {
     try {
       response = await fetch("/api/match", {
         method: "POST",
+
         body: formData,
       });
-    } catch (networkError) {
+    } catch (error) {
       throw new Error("Could not connect to the server. Please try again.");
     }
-
-    /*
-     * Read response according to its content type.
-     * This is important because Render may return an
-     * HTML error page instead of JSON.
-     */
 
     const contentType = response.headers.get("content-type") || "";
 
@@ -596,7 +699,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
       try {
         data = await response.json();
-      } catch (jsonError) {
+      } catch (error) {
         throw new Error(
           `Server returned invalid JSON (HTTP ${response.status}).`,
         );
@@ -613,10 +716,6 @@ document.addEventListener("DOMContentLoaded", () => {
       return data;
     }
 
-    /*
-     * Non-JSON response.
-     */
-
     const responseText = await response.text();
 
     const cleanText = responseText
@@ -624,231 +723,25 @@ document.addEventListener("DOMContentLoaded", () => {
       .replace(/\s+/g, " ")
       .trim();
 
-    if (!response.ok) {
-      throw new Error(
-        cleanText
-          ? `Server error (HTTP ${response.status}): ${cleanText.substring(0, 300)}`
-          : `Server error (HTTP ${response.status}).`,
-      );
-    }
-
     throw new Error(
       cleanText
-        ? `The server returned an invalid response: ${cleanText.substring(0, 300)}`
-        : "The server returned an invalid response.",
+        ? `Server error (HTTP ${response.status}): ${cleanText.substring(
+            0,
+            300,
+          )}`
+        : `Server error (HTTP ${response.status}).`,
     );
   }
 
-  /* ========================================================
-       EXTRACT RESULTS FROM API RESPONSE
-    ======================================================== */
-
-  function extractResults(data) {
-    if (!data) {
-      return [];
-    }
-
-    /*
-     * Common response formats.
-     */
-
-    if (Array.isArray(data)) {
-      return data;
-    }
-
-    if (Array.isArray(data.results)) {
-      return data.results;
-    }
-
-    if (Array.isArray(data.matches)) {
-      return data.matches;
-    }
-
-    if (data.data && Array.isArray(data.data.results)) {
-      return data.data.results;
-    }
-
-    if (data.data && Array.isArray(data.data.matches)) {
-      return data.data.matches;
-    }
-
-    return [];
-  }
-
-  /* ========================================================
-       DISPLAY RESULTS
-    ======================================================== */
-
-  function displayResults(data) {
-    const results = extractResults(data);
-
-    if (!results.length) {
-      if (resultsContainer) {
-        resultsContainer.innerHTML = `
-                    <div class="no-results">
-                        <h3>No similar jewellery found</h3>
-                        <p>
-                            No sufficiently similar jewellery
-                            was found in the catalogue.
-                        </p>
-                    </div>
-                `;
-      }
-
-      if (resultsSection) {
-        showElement(resultsSection);
-      }
-
-      if (bestMatchBadge) {
-        bestMatchBadge.textContent = "No match";
-      }
-
-      return;
-    }
-
-    /*
-     * Sort highest similarity first.
-     */
-
-    results.sort((a, b) => getSimilarity(b) - getSimilarity(a));
-
-    const bestSimilarity = similarityPercentage(getSimilarity(results[0]));
-
-    if (bestMatchBadge) {
-      bestMatchBadge.textContent = `Best match ${bestSimilarity.toFixed(1)}%`;
-    }
-
-    if (!resultsContainer) {
-      return;
-    }
-
-    resultsContainer.innerHTML = "";
-
-    results.forEach((result, index) => {
-      const card = createResultCard(result, index);
-
-      resultsContainer.appendChild(card);
-    });
-
-    if (resultsSection) {
-      showElement(resultsSection);
-    }
-
-    /*
-     * Scroll to results after successful search.
-     */
-
-    setTimeout(() => {
-      resultsSection?.scrollIntoView({
-        behavior: "smooth",
-        block: "start",
-      });
-    }, 100);
-  }
-
-  /* ========================================================
-       CREATE RESULT CARD
-    ======================================================== */
-
-  function createResultCard(result, index) {
-    const card = document.createElement("article");
-
-    card.className = "result-card";
-
-    const name = escapeHtml(getResultName(result));
-
-    const collection = escapeHtml(getResultCollection(result));
-
-    const type = escapeHtml(getResultType(result));
-
-    const subtype = escapeHtml(getResultSubtype(result));
-
-    const similarity = similarityPercentage(getSimilarity(result));
-
-    const imageUrl = getResultImage(result);
-
-    const imageHtml = imageUrl
-      ? `
-                    <img
-                        src="${escapeHtml(imageUrl)}"
-                        alt="${name}"
-                        class="result-image"
-                        loading="lazy"
-                        onerror="this.style.display='none'; this.parentElement.classList.add('image-missing');"
-                    >
-                `
-      : `
-                    <div class="image-missing">
-                        <span>✦</span>
-                    </div>
-                `;
-
-    const collectionHtml = collection
-      ? `
-                    <span class="collection-badge">
-                        ${collection}
-                    </span>
-                `
-      : "";
-
-    const typeHtml = type
-      ? `
-                    <p>
-                        ${type}${subtype ? ` · ${subtype}` : ""}
-                    </p>
-                `
-      : "";
-
-    card.innerHTML = `
-
-            <div class="result-image-wrapper">
-
-                ${imageHtml}
-
-                <div class="result-score">
-                    ${similarity.toFixed(1)}%
-                </div>
-
-            </div>
-
-
-            <div class="result-info">
-
-                <h3 title="${name}">
-                    ${name}
-                </h3>
-
-                ${typeHtml}
-
-                ${collectionHtml}
-
-            </div>
-        `;
-
-    /*
-     * First result gets a subtle visual indicator.
-     */
-
-    if (index === 0) {
-      card.classList.add("best-result");
-    }
-
-    return card;
-  }
-
-  /* ========================================================
-       MATCH BUTTON
-    ======================================================== */
+  // ========================================================
+  // MATCH BUTTON
+  // ========================================================
 
   if (matchButton) {
     matchButton.addEventListener("click", async (event) => {
       event.preventDefault();
 
       clearError();
-
-      /*
-       * Validate selected image.
-       */
 
       if (!selectedFile) {
         showError("Please upload a jewellery image first.");
@@ -864,81 +757,67 @@ document.addEventListener("DOMContentLoaded", () => {
         return;
       }
 
-      /*
-       * Clear previous results.
-       */
-
       hideResults();
 
-      /*
-       * Build multipart form.
-       *
-       * Backend expects:
-       * image
-       */
+      // --------------------------------------------------
+      // SELECTED SEARCH MODE
+      // --------------------------------------------------
+
+      const searchMode = getSearchMode();
+
+      console.log("================================");
+
+      console.log("JEWELLERY SEARCH");
+
+      console.log("Search mode:", searchMode);
+
+      console.log("Mode:", getSearchModeLabel(searchMode));
+
+      console.log("================================");
+
+      // --------------------------------------------------
+      // FORM DATA
+      // --------------------------------------------------
 
       const formData = new FormData();
 
       formData.append("image", selectedFile, selectedFile.name);
 
+      formData.append("search_mode", searchMode);
+
       setLoadingState(true);
 
       try {
-        console.log("Sending jewellery image to /api/match...");
-
         const data = await submitMatchRequest(formData);
 
         console.log("Match API response:", data);
-
-        /*
-         * Backend may explicitly report an error
-         * while still returning HTTP 200.
-         */
-
-        if (data && data.error) {
-          throw new Error(data.error);
-        }
 
         displayResults(data);
       } catch (error) {
         console.error("Jewellery matching error:", error);
 
-        let message = error?.message || "Unable to perform visual search.";
-
-        /*
-         * Make common errors user-friendly.
-         */
-
-        if (message.includes("Failed to fetch")) {
-          message = "Unable to connect to the server. Please try again.";
-        }
-
-        showError(message);
+        showError(error?.message || "Unable to perform visual search.");
       } finally {
         setLoadingState(false);
       }
     });
   }
 
-  /* ========================================================
-       INITIAL STATE
-    ======================================================== */
+  // ========================================================
+  // INITIAL STATE
+  // ========================================================
 
   if (matchButton) {
     matchButton.disabled = true;
   }
 
-  if (loadingBox) {
-    hideElement(loadingBox);
-  }
+  hideElement(loadingBox);
 
-  if (errorBox) {
-    hideElement(errorBox);
-  }
+  hideElement(errorBox);
 
-  if (resultsSection) {
-    hideElement(resultsSection);
-  }
+  hideElement(resultsSection);
+
+  updateSearchModeUI();
 
   console.log("JewelMatch AI - Ready");
 });

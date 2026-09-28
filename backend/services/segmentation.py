@@ -1,246 +1,115 @@
-import os
-import io
-import gc
+"""
+Lightweight jewellery segmentation.
 
-# ============================================================
-# U2-NET CACHE
-# ============================================================
+No:
+- rembg
+- U2-Net
+- pymatting
+- numba
+- ONNX
 
-PROJECT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+This keeps Add Jewellery safe for Render.
+"""
 
-U2NET_HOME = os.path.join(PROJECT_DIR, "model_cache", "rembg")
+from __future__ import annotations
 
-os.environ["U2NET_HOME"] = U2NET_HOME
+from pathlib import Path
 
-os.makedirs(U2NET_HOME, exist_ok=True)
-
-
-# ============================================================
-# SETTINGS
-# ============================================================
-
-MODEL_NAME = "u2net"
-
-# Limit large uploaded images.
-MAX_IMAGE_SIZE = 1024
+import cv2
+import numpy as np
 
 
-# ============================================================
-# LAZY SESSION
-# ============================================================
+def get_mask(image: np.ndarray) -> np.ndarray:
+    """
+    Lightweight foreground estimation.
+    """
 
-SEGMENTATION_SESSION = None
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+    # Estimate background from border
+    border = np.concatenate([gray[0, :], gray[-1, :], gray[:, 0], gray[:, -1]])
+
+    background_value = float(np.median(border))
+
+    difference = cv2.absdiff(gray, np.full_like(gray, int(background_value)))
+
+    # Adaptive threshold
+    _, mask = cv2.threshold(difference, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+
+    kernel = np.ones((5, 5), np.uint8)
+
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
+
+    return mask
+
+
+def get_segmented_crop(image: np.ndarray):
+
+    mask = get_mask(image)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    if not contours:
+        return image, mask
+
+    largest = max(contours, key=cv2.contourArea)
+
+    area = cv2.contourArea(largest)
+
+    image_area = image.shape[0] * image.shape[1]
+
+    if area < image_area * 0.005:
+        return image, mask
+
+    x, y, w, h = cv2.boundingRect(largest)
+
+    padding = int(max(w, h) * 0.10)
+
+    x1 = max(0, x - padding)
+    y1 = max(0, y - padding)
+
+    x2 = min(image.shape[1], x + w + padding)
+
+    y2 = min(image.shape[0], y + h + padding)
+
+    return (image[y1:y2, x1:x2], mask[y1:y2, x1:x2])
+
+
+def segment_jewellery(input_path: str, output_path: str) -> str:
+
+    print(f"[SEGMENTATION] Processing: " f"{input_path}")
+
+    image = cv2.imread(str(input_path))
+
+    if image is None:
+        raise ValueError(f"Unable to read image: {input_path}")
+
+    crop, mask = get_segmented_crop(image)
+
+    # Save lightweight cropped version
+    output = Path(output_path)
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+
+    cv2.imwrite(str(output), crop, [cv2.IMWRITE_JPEG_QUALITY, 92])
+
+    print(f"[SEGMENTATION] Saved: {output}")
+
+    return str(output)
+
+
+def create_segmented_image(input_path: str, output_path: str) -> str:
+
+    return segment_jewellery(input_path, output_path)
 
 
 def get_segmentation_session():
     """
-    Load U2-Net only when segmentation is actually required.
+    Compatibility function.
 
-    This prevents U2-Net from being loaded when Flask starts.
+    Heavy segmentation model no longer exists.
     """
 
-    global SEGMENTATION_SESSION
-
-    if SEGMENTATION_SESSION is not None:
-        return SEGMENTATION_SESSION
-
-    print()
-    print("=" * 60)
-    print("JEWELLERY SEGMENTATION")
-    print("=" * 60)
-
-    print("Model:", MODEL_NAME)
-
-    print("U2-Net cache:", U2NET_HOME)
-
-    print()
-    print("Loading U2-Net segmentation model...")
-
-    # Import rembg only when required.
-    from rembg import new_session
-
-    SEGMENTATION_SESSION = new_session(MODEL_NAME)
-
-    print("U2-Net loaded successfully.")
-
-    print("=" * 60)
-
-    return SEGMENTATION_SESSION
-
-
-# ============================================================
-# RESIZE IMAGE
-# ============================================================
-
-
-def resize_for_segmentation(image):
-
-    from PIL import Image
-
-    width, height = image.size
-
-    largest_dimension = max(width, height)
-
-    if largest_dimension <= MAX_IMAGE_SIZE:
-
-        return image
-
-    scale = MAX_IMAGE_SIZE / largest_dimension
-
-    new_width = max(1, int(width * scale))
-
-    new_height = max(1, int(height * scale))
-
-    print("Resizing:", f"{width}x{height}", "->", f"{new_width}x{new_height}")
-
-    resized_image = image.resize((new_width, new_height), Image.Resampling.LANCZOS)
-
-    return resized_image
-
-
-# ============================================================
-# SEGMENT JEWELLERY
-# ============================================================
-
-
-def segment_jewellery(image_path, output_path):
-
-    print()
-    print("Segmenting image:")
-
-    print(image_path)
-
-    if not os.path.exists(image_path):
-
-        raise FileNotFoundError(f"Input image not found:\n" f"{image_path}")
-
-    # --------------------------------------------------------
-    # Lazy imports
-    # --------------------------------------------------------
-
-    from PIL import Image
-
-    from rembg import remove
-
-    # --------------------------------------------------------
-    # Get U2-Net session
-    # --------------------------------------------------------
-
-    session = get_segmentation_session()
-
-    # --------------------------------------------------------
-    # Open image
-    # --------------------------------------------------------
-
-    input_image = Image.open(image_path).convert("RGB")
-
-    print("Original size:", input_image.size)
-
-    # --------------------------------------------------------
-    # Resize
-    # --------------------------------------------------------
-
-    resized_image = resize_for_segmentation(input_image)
-
-    print("Segmentation size:", resized_image.size)
-
-    # --------------------------------------------------------
-    # Convert to JPEG bytes
-    # --------------------------------------------------------
-
-    input_buffer = io.BytesIO()
-
-    resized_image.save(input_buffer, format="JPEG", quality=85)
-
-    # We no longer need PIL images here.
-    resized_image.close()
-
-    if resized_image is not input_image:
-
-        input_image.close()
-
-    else:
-
-        input_image.close()
-
-    input_bytes = input_buffer.getvalue()
-
-    input_buffer.close()
-
-    del input_buffer
-
-    gc.collect()
-
-    # --------------------------------------------------------
-    # Background removal
-    # --------------------------------------------------------
-
-    print("Running U2-Net...")
-
-    output_bytes = remove(input_bytes, session=session)
-
-    del input_bytes
-
-    gc.collect()
-
-    # --------------------------------------------------------
-    # Read segmentation result
-    # --------------------------------------------------------
-
-    result_buffer = io.BytesIO(output_bytes)
-
-    segmented_image = Image.open(result_buffer).convert("RGBA")
-
-    result_buffer.close()
-
-    del result_buffer
-    del output_bytes
-
-    gc.collect()
-
-    # --------------------------------------------------------
-    # White background
-    # --------------------------------------------------------
-
-    white_background = Image.new("RGBA", segmented_image.size, (255, 255, 255, 255))
-
-    final_image = Image.alpha_composite(white_background, segmented_image).convert(
-        "RGB"
-    )
-
-    segmented_image.close()
-    white_background.close()
-
-    del segmented_image
-    del white_background
-
-    gc.collect()
-
-    # --------------------------------------------------------
-    # Output directory
-    # --------------------------------------------------------
-
-    output_directory = os.path.dirname(output_path)
-
-    if output_directory:
-
-        os.makedirs(output_directory, exist_ok=True)
-
-    # --------------------------------------------------------
-    # Save final image
-    # --------------------------------------------------------
-
-    final_image.save(output_path, format="JPEG", quality=85)
-
-    final_image.close()
-
-    del final_image
-
-    gc.collect()
-
-    print()
-    print("Segmented image saved:")
-
-    print(output_path)
-
-    return output_path
+    return None

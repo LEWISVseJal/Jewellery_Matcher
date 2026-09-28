@@ -1,6 +1,5 @@
 import os
 
-
 # ============================================================
 # PROJECT DIRECTORIES
 # ============================================================
@@ -13,80 +12,47 @@ PROJECT_DIR = os.path.dirname(BASE_DIR)
 # DATABASE
 # ============================================================
 
-DATABASE_DIR = os.path.join(
-    BASE_DIR,
-    "database"
-)
+DATABASE_DIR = os.path.join(BASE_DIR, "database")
 
-JEWELLERY_JSON = os.path.join(
-    DATABASE_DIR,
-    "jewellery.json"
-)
+JEWELLERY_JSON = os.path.join(DATABASE_DIR, "jewellery.json")
 
 
 # ============================================================
 # CATALOGUE DIRECTORIES
 # ============================================================
 
-CATALOGUE_DIR = os.path.join(
-    BASE_DIR,
-    "catalogue"
-)
+CATALOGUE_DIR = os.path.join(BASE_DIR, "catalogue")
 
-GOLD_CATALOGUE_DIR = os.path.join(
-    CATALOGUE_DIR,
-    "gold"
-)
+GOLD_CATALOGUE_DIR = os.path.join(CATALOGUE_DIR, "gold")
 
-PROTOTYPE_CATALOGUE_DIR = os.path.join(
-    CATALOGUE_DIR,
-    "prototype"
-)
+PROTOTYPE_CATALOGUE_DIR = os.path.join(CATALOGUE_DIR, "prototype")
 
 
 # ============================================================
 # EMBEDDING FILES
 # ============================================================
 
-GOLD_EMBEDDINGS_FILE = os.path.join(
-    DATABASE_DIR,
-    "gold_embeddings.npy"
-)
+GOLD_EMBEDDINGS_FILE = os.path.join(DATABASE_DIR, "gold_embeddings.npy")
 
-PROTOTYPE_EMBEDDINGS_FILE = os.path.join(
-    DATABASE_DIR,
-    "prototype_embeddings.npy"
-)
+PROTOTYPE_EMBEDDINGS_FILE = os.path.join(DATABASE_DIR, "prototype_embeddings.npy")
 
 
 # ============================================================
 # SEGMENTED CATALOGUE
 # ============================================================
 
-SEGMENTED_CATALOGUE_DIR = os.path.join(
-    DATABASE_DIR,
-    "segmented_catalogue"
-)
+SEGMENTED_CATALOGUE_DIR = os.path.join(DATABASE_DIR, "segmented_catalogue")
 
-GOLD_SEGMENTED_DIR = os.path.join(
-    SEGMENTED_CATALOGUE_DIR,
-    "gold"
-)
+GOLD_SEGMENTED_DIR = os.path.join(SEGMENTED_CATALOGUE_DIR, "gold")
 
-PROTOTYPE_SEGMENTED_DIR = os.path.join(
-    SEGMENTED_CATALOGUE_DIR,
-    "prototype"
-)
+PROTOTYPE_SEGMENTED_DIR = os.path.join(SEGMENTED_CATALOGUE_DIR, "prototype")
 
 
 # ============================================================
 # UPLOADS
 # ============================================================
 
-UPLOAD_FOLDER = os.path.join(
-    BASE_DIR,
-    "uploads"
-)
+UPLOAD_FOLDER = os.path.join(BASE_DIR, "uploads")
 
 
 # ============================================================
@@ -97,20 +63,14 @@ TOP_K = 5
 
 # Temporary starting threshold.
 # We will tune this using real Gold/Prototype pairs.
-MATCH_THRESHOLD = 0.15
+MATCH_THRESHOLD = 0.45
 
 
 # ============================================================
 # ALLOWED IMAGE TYPES
 # ============================================================
 
-ALLOWED_EXTENSIONS = {
-    "jpg",
-    "jpeg",
-    "png",
-    "webp",
-    "bmp"
-}
+ALLOWED_EXTENSIONS = {"jpg", "jpeg", "png", "webp", "bmp"}
 
 
 # ============================================================
@@ -129,7 +89,4 @@ directories = [
 ]
 
 for directory in directories:
-    os.makedirs(
-        directory,
-        exist_ok=True
-    )
+    os.makedirs(directory, exist_ok=True)

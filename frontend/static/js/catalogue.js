@@ -231,7 +231,7 @@ async function loadCatalogue() {
   try {
     loading.classList.remove("hidden");
 
-    const response = await fetch("/api/jewellery");
+    const response = await fetch("/api/catalogue");
 
     if (!response.ok) {
       throw new Error("Could not load catalogue.");

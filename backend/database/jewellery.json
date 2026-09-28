@@ -309,16 +309,5 @@
         "description": "",
         "image": "J031.jpeg",
         "category": "Ring"
-    },
-    {
-        "id": "J032",
-        "name": "Gold Ring",
-        "gender": "Male",
-        "type": "Ring",
-        "category": "Ring",
-        "subtype": "",
-        "description": "",
-        "collection": "gold",
-        "image": "J032.jpeg"
     }
 ]

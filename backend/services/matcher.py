@@ -1,207 +1,49 @@
-"""
-JewelMatch AI
-Cross-Collection Visual Jewellery Matcher
-
-Pipeline:
-
-Query image
-    ↓
-Image validation
-    ↓
-Feature extraction
-    ↓
-Source collection identification
-    ↓
-Opposite collection restriction
-    ↓
-Global structural similarity
-    ↓
-ORB local feature comparison
-    ↓
-Candidate re-ranking
-    ↓
-Confidence gate
-    ↓
-MATCH or NO MATCH
-"""
-
-from __future__ import annotations
-
 import json
 import os
-import pickle
-import uuid
 from pathlib import Path
-from typing import Any
 
 import cv2
 import numpy as np
 
-from .embedding import (
-    create_embedding,
-    extract_orb_descriptors,
-    validate_query_image,
-    load_color_image,
-    create_foreground_mask,
-    crop_foreground,
-    prepare_view,
-)
+from .embedding import create_embedding
+
 
 # ============================================================
 # PATHS
 # ============================================================
 
-SERVICE_DIR = Path(__file__).resolve().parent
-BACKEND_DIR = SERVICE_DIR.parent
-PROJECT_DIR = BACKEND_DIR.parent
+BASE_DIR = Path(__file__).resolve().parents[1]
 
-DATABASE_DIR = BACKEND_DIR / "database"
+CATALOGUE_JSON = BASE_DIR / "database" / "jewellery.json"
 
-CATALOGUE_DIR = BACKEND_DIR / "catalogue"
+GOLD_DIR = BASE_DIR / "catalogue" / "gold"
+PROTOTYPE_DIR = BASE_DIR / "catalogue" / "prototype"
 
-CATALOGUE_FILE = DATABASE_DIR / "jewellery.json"
-
-INDEX_FILE = DATABASE_DIR / "visual_index.pkl"
-
-INDEX_VERSION = 2
+INDEX_FILE = BASE_DIR / "database" / "dino_index.npz"
 
 
 # ============================================================
 # MATCHING CONFIGURATION
 # ============================================================
 
-TOP_K = int(
-    os.getenv(
-        "JEWELMATCH_TOP_K",
-        "8",
-    )
-)
+# Current working threshold.
+DINO_DIRECT_THRESHOLD = 0.35
 
-# Minimum target similarity.
-MATCH_THRESHOLD = float(
-    os.getenv(
-        "JEWELMATCH_MATCH_THRESHOLD",
-        "0.56",
-    )
-)
+# Number of DINO candidates to verify.
+TOP_CANDIDATES = 8
 
-# Minimum source evidence.
-SOURCE_THRESHOLD = float(
-    os.getenv(
-        "JEWELMATCH_SOURCE_THRESHOLD",
-        "0.54",
-    )
-)
+# Do not perform expensive design verification below this score.
+DESIGN_CHECK_MIN_DINO = 0.35
 
-# A candidate must be reasonably close to the best candidate.
-RESULT_GAP = float(
-    os.getenv(
-        "JEWELMATCH_RESULT_GAP",
-        "0.15",
-    )
-)
+# Final combined score threshold.
+FINAL_MATCH_THRESHOLD = 0.62
 
-# Global feature weight.
-GLOBAL_WEIGHT = 0.55
+# Strong design evidence.
+STRONG_DESIGN_THRESHOLD = 0.78
+STRONG_DESIGN_DINO_MIN = 0.45
 
-# Edge/structure weight.
-STRUCTURE_WEIGHT = 0.30
-
-# Local ORB weight.
-LOCAL_WEIGHT = 0.15
-
-
-# ============================================================
-# MEMORY CACHE
-# ============================================================
-
-_INDEX_CACHE: dict | None = None
-
-
-# ============================================================
-# CATALOGUE
-# ============================================================
-
-
-def load_catalogue() -> list[dict]:
-    """
-    Load catalogue JSON.
-
-    Supports:
-        [...]
-    or:
-        {"items": [...]}
-    or:
-        {"jewellery": [...]}
-    """
-
-    if not CATALOGUE_FILE.exists():
-        return []
-
-    try:
-
-        with open(
-            CATALOGUE_FILE,
-            "r",
-            encoding="utf-8",
-        ) as file:
-
-            data = json.load(file)
-
-    except Exception as error:
-
-        print(f"[CATALOGUE] Failed to load JSON: {error}")
-
-        return []
-
-    if isinstance(data, list):
-        return data
-
-    if isinstance(data, dict):
-
-        if isinstance(
-            data.get("items"),
-            list,
-        ):
-            return data["items"]
-
-        if isinstance(
-            data.get("jewellery"),
-            list,
-        ):
-            return data["jewellery"]
-
-    return []
-
-
-def save_catalogue(
-    items: list[dict],
-) -> None:
-    """
-    Save catalogue in list format.
-    """
-
-    DATABASE_DIR.mkdir(
-        parents=True,
-        exist_ok=True,
-    )
-
-    temporary_file = CATALOGUE_FILE.with_suffix(".tmp")
-
-    with open(
-        temporary_file,
-        "w",
-        encoding="utf-8",
-    ) as file:
-
-        json.dump(
-            items,
-            file,
-            indent=4,
-            ensure_ascii=False,
-        )
-
-    temporary_file.replace(CATALOGUE_FILE)
+# Minimum difference between first and second candidate.
+MIN_GAP_FOR_WEAK_MATCH = 0.025
 
 
 # ============================================================
@@ -209,1304 +51,2301 @@ def save_catalogue(
 # ============================================================
 
 
-def normalize_collection(
-    value: Any,
-) -> str:
-    """
-    Normalize collection names.
-    """
-
+def _normalize_collection(value):
     value = str(value or "").strip().lower()
 
     if value in {
         "gold",
-        "gold collection",
-        "finished gold",
+        "g",
+        "finished",
     }:
         return "gold"
 
     if value in {
         "prototype",
-        "prototype collection",
+        "p",
         "green",
+        "sample",
     }:
         return "prototype"
 
     return value
 
 
-def get_item_id(
-    item: dict,
-) -> str:
+def _detect_query_collection(query_path):
     """
-    Return stable catalogue ID.
-    """
+    Try to determine whether the uploaded query image belongs
+    to the Gold or Prototype collection.
 
-    for key in (
-        "id",
-        "jewellery_id",
-        "design_id",
-        "sku",
-    ):
+    This is only used for metadata/source reporting.
 
-        value = item.get(key)
-
-        if value not in (
-            None,
-            "",
-        ):
-
-            return str(value)
-
-    return ""
-
-
-# ============================================================
-# IMAGE PATH RESOLUTION
-# ============================================================
-
-
-def resolve_image_path(
-    item_or_path: dict | str | Path,
-    collection: str | None = None,
-) -> Path | None:
-    """
-    Resolve catalogue image paths safely.
-
-    Handles:
-    - absolute Windows paths
-    - absolute Linux paths
-    - backend/catalogue/gold/...
-    - gold/filename
-    - prototype/filename
-    - filename only
+    IMPORTANT:
+    It does NOT restrict 'all' mode.
     """
 
-    if isinstance(
-        item_or_path,
-        dict,
-    ):
+    try:
+        path = Path(query_path).resolve()
 
-        image_value = (
-            item_or_path.get("image")
-            or item_or_path.get("image_path")
-            or item_or_path.get("path")
-        )
+        parts = [
+            str(part).strip().lower()
+            for part in path.parts
+        ]
 
-        if not image_value:
-            return None
+        if "gold" in parts:
+            return "gold"
 
-        if collection is None:
-            collection = normalize_collection(item_or_path.get("collection"))
+        if "prototype" in parts:
+            return "prototype"
 
-    else:
+        path_string = str(path).lower()
 
-        image_value = str(item_or_path)
+        if "gold_img" in path_string:
+            return "gold"
 
-    raw = str(image_value).strip()
+        if "prototype_img" in path_string:
+            return "prototype"
 
-    if not raw:
-        return None
+        if "gold" in path_string:
+            return "gold"
 
-    normalized = raw.replace(
-        "\\",
-        "/",
+        if "prototype" in path_string:
+            return "prototype"
+
+    except Exception:
+        pass
+
+    return None
+
+
+def _normalize_search_mode(value):
+    """
+    Normalize all supported search mode names.
+
+    Supported canonical modes:
+
+        all
+        gold_to_prototype
+        prototype_to_gold
+    """
+
+    value = str(value or "all").strip().lower()
+
+    aliases = {
+        "all": "all",
+        "both": "all",
+        "all_collections": "all",
+        "search_all": "all",
+
+        "gold_to_prototype": "gold_to_prototype",
+        "gold-prototype": "gold_to_prototype",
+        "gold_to_green": "gold_to_prototype",
+        "gold_to_sample": "gold_to_prototype",
+
+        "prototype_to_gold": "prototype_to_gold",
+        "prototype-gold": "prototype_to_gold",
+        "green_to_gold": "prototype_to_gold",
+        "sample_to_gold": "prototype_to_gold",
+    }
+
+    return aliases.get(
+        value,
+        "all",
     )
 
-    # 1. Exact path.
-    direct = Path(normalized)
 
-    if direct.exists():
-        return direct
+# ============================================================
+# CATALOGUE HELPERS
+# ============================================================
 
-    # 2. Relative to project root.
-    project_path = PROJECT_DIR / normalized
 
-    if project_path.exists():
-        return project_path
+def _load_catalogue():
 
-    # 3. Relative to backend.
-    backend_path = BACKEND_DIR / normalized
+    if not CATALOGUE_JSON.exists():
 
-    if backend_path.exists():
-        return backend_path
+        print(
+            f"[MATCHER] Catalogue not found: "
+            f"{CATALOGUE_JSON}"
+        )
 
-    filename = Path(normalized).name
+        return []
 
-    # 4. Known collection.
-    normalized_collection = normalize_collection(collection)
+    try:
 
-    if normalized_collection in {
-        "gold",
-        "prototype",
-    }:
+        with open(
+            CATALOGUE_JSON,
+            "r",
+            encoding="utf-8",
+        ) as f:
 
-        candidate = CATALOGUE_DIR / normalized_collection / filename
+            data = json.load(f)
 
-        if candidate.exists():
-            return candidate
+        if isinstance(data, dict):
 
-    # 5. Search both collections.
-    for folder_name in (
-        "gold",
-        "prototype",
-    ):
+            if "items" in data:
 
-        folder = CATALOGUE_DIR / folder_name
+                data = data["items"]
 
-        if not folder.exists():
-            continue
+            else:
 
-        candidate = folder / filename
+                data = list(data.values())
 
-        if candidate.exists():
-            return candidate
+        if isinstance(data, list):
 
-        try:
+            return data
 
-            matches = list(folder.rglob(filename))
+        return []
 
-            if matches:
-                return matches[0]
+    except Exception as exc:
 
-        except Exception:
-            pass
+        print(
+            f"[MATCHER] Failed to load catalogue: "
+            f"{exc}"
+        )
+
+        return []
+
+
+def _item_id(item):
+
+    return (
+        item.get("id")
+        or item.get("item_id")
+        or item.get("design_id")
+        or item.get("sku")
+        or ""
+    )
+
+
+def _design_id(item):
+
+    return (
+        item.get("design_id")
+        or item.get("id")
+        or item.get("item_id")
+        or item.get("sku")
+        or ""
+    )
+
+
+def _item_name(item):
+    """
+    Get jewellery display name from catalogue JSON.
+
+    Supports multiple possible field names.
+    """
+
+    if not item:
+
+        return ""
+
+    return (
+        item.get("name")
+        or item.get("jewellery_name")
+        or item.get("jewelry_name")
+        or item.get("title")
+        or item.get("product_name")
+        or item.get("display_name")
+        or ""
+    )
+
+
+def _item_type(item):
+
+    if not item:
+
+        return ""
+
+    return (
+        item.get("type")
+        or item.get("jewellery_type")
+        or item.get("jewelry_type")
+        or item.get("category")
+        or ""
+    )
+
+
+def _item_subtype(item):
+
+    if not item:
+
+        return ""
+
+    return (
+        item.get("subtype")
+        or item.get("jewellery_subtype")
+        or item.get("jewelry_subtype")
+        or ""
+    )
+
+
+def _item_sku(item):
+
+    if not item:
+
+        return ""
+
+    return (
+        item.get("sku")
+        or item.get("product_code")
+        or ""
+    )
+
+
+def _find_catalogue_item(
+    item_id="",
+    design_id="",
+    collection="",
+):
+    """
+    Find the full catalogue record for a matched item.
+
+    Matching order:
+    1. item ID + collection
+    2. design ID + collection
+    3. item ID
+    4. design ID
+    """
+
+    catalogue = _load_catalogue()
+
+    wanted_id = str(
+        item_id or ""
+    ).strip()
+
+    wanted_design = str(
+        design_id or ""
+    ).strip()
+
+    wanted_collection = _normalize_collection(
+        collection
+    )
+
+    # --------------------------------------------------------
+    # First pass: ID + collection
+    # --------------------------------------------------------
+
+    if wanted_id:
+
+        for item in catalogue:
+
+            current_id = str(
+                _item_id(item)
+            ).strip()
+
+            current_collection = _normalize_collection(
+                item.get("collection")
+                or item.get("type")
+                or item.get("category")
+            )
+
+            if (
+                current_id == wanted_id
+                and (
+                    not wanted_collection
+                    or current_collection == wanted_collection
+                )
+            ):
+
+                return item
+
+    # --------------------------------------------------------
+    # Second pass: design ID + collection
+    # --------------------------------------------------------
+
+    if wanted_design:
+
+        for item in catalogue:
+
+            current_design = str(
+                _design_id(item)
+            ).strip()
+
+            current_collection = _normalize_collection(
+                item.get("collection")
+                or item.get("type")
+                or item.get("category")
+            )
+
+            if (
+                current_design == wanted_design
+                and (
+                    not wanted_collection
+                    or current_collection == wanted_collection
+                )
+            ):
+
+                return item
+
+    # --------------------------------------------------------
+    # Third pass: ID only
+    # --------------------------------------------------------
+
+    if wanted_id:
+
+        for item in catalogue:
+
+            current_id = str(
+                _item_id(item)
+            ).strip()
+
+            if current_id == wanted_id:
+
+                return item
+
+    # --------------------------------------------------------
+    # Fourth pass: design ID only
+    # --------------------------------------------------------
+
+    if wanted_design:
+
+        for item in catalogue:
+
+            current_design = str(
+                _design_id(item)
+            ).strip()
+
+            if current_design == wanted_design:
+
+                return item
 
     return None
 
 
 # ============================================================
-# STRUCTURE SIMILARITY
+# IMAGE PATH
 # ============================================================
 
 
-def edge_structure_similarity(
-    query_path: str | Path,
-    candidate_path: str | Path,
-) -> float:
-    """
-    Compare normalized edge structure.
+def _resolve_image_path(item):
 
-    Colour is ignored.
-    """
+    collection = _normalize_collection(
+        item.get("collection")
+        or item.get("type")
+        or item.get("category")
+    )
+
+    filename = (
+        item.get("filename")
+        or item.get("image")
+        or item.get("image_path")
+        or item.get("path")
+    )
+
+    if not filename:
+
+        return None
+
+    filename = str(
+        filename
+    ).replace(
+        "\\",
+        "/",
+    )
+
+    possible = Path(filename)
+
+    # Absolute path
+    if possible.is_absolute() and possible.exists():
+
+        return possible
+
+    if collection == "gold":
+
+        base_dir = GOLD_DIR
+
+    elif collection == "prototype":
+
+        base_dir = PROTOTYPE_DIR
+
+    else:
+
+        return None
+
+    # Remove stored collection prefix.
+    filename = filename.replace(
+        "gold/",
+        "",
+    )
+
+    filename = filename.replace(
+        "prototype/",
+        "",
+    )
+
+    path = base_dir / filename
+
+    if path.exists():
+
+        return path
+
+    return None
+
+
+# ============================================================
+# IMAGE HELPERS
+# ============================================================
+
+
+def _load_gray(
+    image_path,
+    size=320,
+):
+
+    image = cv2.imread(
+        str(image_path)
+    )
+
+    if image is None:
+
+        return None
+
+    gray = cv2.cvtColor(
+        image,
+        cv2.COLOR_BGR2GRAY,
+    )
+
+    h, w = gray.shape[:2]
+
+    if h == 0 or w == 0:
+
+        return None
+
+    scale = min(
+        size / w,
+        size / h,
+    )
+
+    new_w = max(
+        1,
+        int(w * scale),
+    )
+
+    new_h = max(
+        1,
+        int(h * scale),
+    )
+
+    resized = cv2.resize(
+        gray,
+        (
+            new_w,
+            new_h,
+        ),
+        interpolation=cv2.INTER_AREA,
+    )
+
+    canvas = np.zeros(
+        (
+            size,
+            size,
+        ),
+        dtype=np.uint8,
+    )
+
+    x = (
+        size - new_w
+    ) // 2
+
+    y = (
+        size - new_h
+    ) // 2
+
+    canvas[
+        y : y + new_h,
+        x : x + new_w,
+    ] = resized
+
+    return canvas
+
+
+def _normalize_image(gray):
+
+    clahe = cv2.createCLAHE(
+        clipLimit=2.0,
+        tileGridSize=(
+            8,
+            8,
+        ),
+    )
+
+    normalized = clahe.apply(
+        gray
+    )
+
+    normalized = cv2.GaussianBlur(
+        normalized,
+        (
+            3,
+            3,
+        ),
+        0,
+    )
+
+    return normalized
+
+
+# ============================================================
+# SHAPE SIMILARITY
+# ============================================================
+
+
+def _shape_similarity(
+    query_gray,
+    candidate_gray,
+):
 
     try:
 
-        query = load_color_image(query_path)
-
-        candidate = load_color_image(candidate_path)
-
-        query_mask = create_foreground_mask(query)
-
-        candidate_mask = create_foreground_mask(candidate)
-
-        query_crop, query_crop_mask = crop_foreground(
-            query,
-            query_mask,
+        q = _normalize_image(
+            query_gray
         )
 
-        candidate_crop, candidate_crop_mask = crop_foreground(
-            candidate,
-            candidate_mask,
+        c = _normalize_image(
+            candidate_gray
         )
 
-        query_gray, _ = prepare_view(
-            query_crop,
-            query_crop_mask,
+        _, q_bin = cv2.threshold(
+            q,
+            0,
+            255,
+            cv2.THRESH_BINARY
+            + cv2.THRESH_OTSU,
         )
 
-        candidate_gray, _ = prepare_view(
-            candidate_crop,
-            candidate_crop_mask,
+        _, c_bin = cv2.threshold(
+            c,
+            0,
+            255,
+            cv2.THRESH_BINARY
+            + cv2.THRESH_OTSU,
         )
 
-        query_edges = cv2.Canny(
-            query_gray,
-            50,
-            150,
+        def largest_contour(
+            binary,
+        ):
+
+            contours, _ = cv2.findContours(
+                binary,
+                cv2.RETR_EXTERNAL,
+                cv2.CHAIN_APPROX_SIMPLE,
+            )
+
+            if not contours:
+
+                return None
+
+            return max(
+                contours,
+                key=cv2.contourArea,
+            )
+
+        q_contour = largest_contour(
+            q_bin
         )
 
-        candidate_edges = cv2.Canny(
-            candidate_gray,
-            50,
-            150,
+        c_contour = largest_contour(
+            c_bin
         )
 
-        query_edges = query_edges.astype(np.float32) / 255.0
+        if (
+            q_contour is None
+            or c_contour is None
+        ):
 
-        candidate_edges = candidate_edges.astype(np.float32) / 255.0
+            return 0.0
 
-        difference = float(np.mean(np.abs(query_edges - candidate_edges)))
+        q_area = cv2.contourArea(
+            q_contour
+        )
 
-        score = 1.0 - difference
+        c_area = cv2.contourArea(
+            c_contour
+        )
+
+        if (
+            q_area < 100
+            or c_area < 100
+        ):
+
+            return 0.0
+
+        q_hu = cv2.HuMoments(
+            cv2.moments(
+                q_contour
+            )
+        ).flatten()
+
+        c_hu = cv2.HuMoments(
+            cv2.moments(
+                c_contour
+            )
+        ).flatten()
+
+        q_hu = (
+            -np.sign(q_hu)
+            * np.log10(
+                np.abs(q_hu)
+                + 1e-12
+            )
+        )
+
+        c_hu = (
+            -np.sign(c_hu)
+            * np.log10(
+                np.abs(c_hu)
+                + 1e-12
+            )
+        )
+
+        distance = np.linalg.norm(
+            q_hu - c_hu
+        )
+
+        similarity = (
+            1.0
+            / (
+                1.0
+                + distance
+            )
+        )
 
         return float(
             np.clip(
-                score,
+                similarity,
                 0.0,
                 1.0,
             )
         )
 
-    except Exception as error:
+    except Exception as exc:
 
-        print(f"[STRUCTURE] Error: {error}")
+        print(
+            f"[DESIGN] Shape comparison error: "
+            f"{exc}"
+        )
 
         return 0.0
 
 
 # ============================================================
-# ORB SIMILARITY
+# EDGE / STRUCTURE SIMILARITY
 # ============================================================
 
 
-def orb_similarity(
-    query_descriptors: dict,
-    candidate_descriptors: dict,
-) -> float:
-    """
-    Compare ORB descriptors using Hamming distance and
-    Lowe-style ratio filtering.
+def _edge_similarity(
+    query_gray,
+    candidate_gray,
+):
 
-    A small RANSAC-style geometric consistency check is also
-    applied when enough matches are available.
-    """
+    try:
 
-    if not query_descriptors:
-        return 0.0
+        q = _normalize_image(
+            query_gray
+        )
 
-    if not candidate_descriptors:
-        return 0.0
+        c = _normalize_image(
+            candidate_gray
+        )
 
-    matcher = cv2.BFMatcher(
-        cv2.NORM_HAMMING,
-        crossCheck=False,
-    )
+        q_edges = cv2.Canny(
+            q,
+            50,
+            150,
+        )
 
-    scores = []
+        c_edges = cv2.Canny(
+            c,
+            50,
+            150,
+        )
 
-    for key in (
-        "full",
-        "crop",
-    ):
+        kernel = np.ones(
+            (
+                2,
+                2,
+            ),
+            np.uint8,
+        )
 
-        query_desc = query_descriptors.get(key)
+        q_edges = cv2.dilate(
+            q_edges,
+            kernel,
+            iterations=1,
+        )
 
-        candidate_desc = candidate_descriptors.get(key)
+        c_edges = cv2.dilate(
+            c_edges,
+            kernel,
+            iterations=1,
+        )
 
-        if query_desc is None or candidate_desc is None:
-            continue
+        q_vec = (
+            q_edges
+            .astype(np.float32)
+            .flatten()
+        )
 
-        if len(query_desc) < 3 or len(candidate_desc) < 3:
-            continue
+        c_vec = (
+            c_edges
+            .astype(np.float32)
+            .flatten()
+        )
 
-        try:
+        q_norm = np.linalg.norm(
+            q_vec
+        )
 
-            matches = matcher.knnMatch(
-                query_desc,
-                candidate_desc,
-                k=2,
+        c_norm = np.linalg.norm(
+            c_vec
+        )
+
+        if (
+            q_norm == 0
+            or c_norm == 0
+        ):
+
+            return 0.0
+
+        cosine = float(
+            np.dot(
+                q_vec,
+                c_vec,
             )
+            / (
+                q_norm
+                * c_norm
+            )
+        )
 
-        except Exception:
-            continue
+        return float(
+            np.clip(
+                cosine,
+                0.0,
+                1.0,
+            )
+        )
+
+    except Exception as exc:
+
+        print(
+            f"[DESIGN] Edge comparison error: "
+            f"{exc}"
+        )
+
+        return 0.0
+
+
+# ============================================================
+# ORB / PATTERN SIMILARITY
+# ============================================================
+
+
+def _orb_similarity(
+    query_gray,
+    candidate_gray,
+):
+
+    try:
+
+        orb = cv2.ORB_create(
+            nfeatures=700,
+            scaleFactor=1.2,
+            nlevels=8,
+            edgeThreshold=15,
+            fastThreshold=10,
+        )
+
+        kp1, des1 = orb.detectAndCompute(
+            query_gray,
+            None,
+        )
+
+        kp2, des2 = orb.detectAndCompute(
+            candidate_gray,
+            None,
+        )
+
+        if (
+            des1 is None
+            or des2 is None
+        ):
+
+            return 0.0
+
+        if (
+            len(des1) < 3
+            or len(des2) < 3
+        ):
+
+            return 0.0
+
+        matcher = cv2.BFMatcher(
+            cv2.NORM_HAMMING,
+            crossCheck=False,
+        )
+
+        matches = matcher.knnMatch(
+            des1,
+            des2,
+            k=2,
+        )
 
         good_matches = []
 
         for pair in matches:
 
             if len(pair) < 2:
+
                 continue
 
-            first, second = pair
+            m, n = pair
 
-            if first.distance < 0.76 * second.distance:
-                good_matches.append(first)
+            if (
+                m.distance
+                < 0.75 * n.distance
+            ):
 
-        if not good_matches:
-            continue
+                good_matches.append(
+                    m
+                )
 
-        denominator = float(
-            max(
-                1,
-                min(
-                    len(query_desc),
-                    len(candidate_desc),
-                ),
-            )
-        )
-
-        good_ratio = len(good_matches) / denominator
-
-        # More useful for jewellery images than simply counting
-        # raw matches.
-        scores.append(
+        denominator = max(
+            1,
             min(
+                len(des1),
+                len(des2),
+            ),
+        )
+
+        ratio = (
+            len(good_matches)
+            / denominator
+        )
+
+        return float(
+            np.clip(
+                ratio * 3.0,
+                0.0,
                 1.0,
-                good_ratio * 4.0,
             )
         )
 
-    if not scores:
-        return 0.0
+    except Exception as exc:
 
-    return float(np.mean(scores))
-
-
-# ============================================================
-# GLOBAL SIMILARITY
-# ============================================================
-
-
-def cosine_similarity(
-    a: np.ndarray,
-    b: np.ndarray,
-) -> float:
-    """
-    Cosine similarity for normalized vectors.
-    """
-
-    a = np.asarray(
-        a,
-        dtype=np.float32,
-    ).reshape(-1)
-
-    b = np.asarray(
-        b,
-        dtype=np.float32,
-    ).reshape(-1)
-
-    if a.size == 0 or b.size == 0 or a.shape != b.shape:
-        return 0.0
-
-    denominator = np.linalg.norm(a) * np.linalg.norm(b)
-
-    if denominator < 1e-8:
-        return 0.0
-
-    score = float(np.dot(a, b)) / float(denominator)
-
-    return float(
-        np.clip(
-            score,
-            0.0,
-            1.0,
+        print(
+            f"[DESIGN] ORB comparison error: "
+            f"{exc}"
         )
-    )
+
+        return 0.0
 
 
 # ============================================================
-# COMBINED SCORE
+# DESIGN VERIFICATION
 # ============================================================
 
 
-def calculate_match_score(
-    query_embedding: np.ndarray,
-    candidate_embedding: np.ndarray,
-    query_image_path: Path,
-    candidate_image_path: Path,
-    query_descriptors: dict,
-    candidate_descriptors: dict,
-) -> tuple[float, dict]:
-    """
-    Calculate the final design similarity.
-    """
+def _calculate_design_features(
+    query_path,
+    candidate_path,
+):
 
-    global_score = cosine_similarity(
-        query_embedding,
-        candidate_embedding,
+    query_gray = _load_gray(
+        query_path
     )
 
-    structure_score = edge_structure_similarity(
-        query_image_path,
-        candidate_image_path,
+    candidate_gray = _load_gray(
+        candidate_path
     )
 
-    local_score = orb_similarity(
-        query_descriptors,
-        candidate_descriptors,
+    if (
+        query_gray is None
+        or candidate_gray is None
+    ):
+
+        return {
+            "shape": 0.0,
+            "structure": 0.0,
+            "pattern": 0.0,
+            "design_score": 0.0,
+        }
+
+    shape = _shape_similarity(
+        query_gray,
+        candidate_gray,
     )
 
-    final_score = (
-        GLOBAL_WEIGHT * global_score
-        + STRUCTURE_WEIGHT * structure_score
-        + LOCAL_WEIGHT * local_score
+    structure = _edge_similarity(
+        query_gray,
+        candidate_gray,
     )
 
-    final_score = float(
-        np.clip(
-            final_score,
-            0.0,
-            1.0,
-        )
+    pattern = _orb_similarity(
+        query_gray,
+        candidate_gray,
     )
 
-    details = {
-        "global_similarity": round(
-            global_score,
-            4,
-        ),
-        "structure_similarity": round(
-            structure_score,
-            4,
-        ),
-        "local_similarity": round(
-            local_score,
-            4,
-        ),
-        "final_similarity": round(
-            final_score,
-            4,
+    design_score = (
+        shape * 0.40
+        + structure * 0.35
+        + pattern * 0.25
+    )
+
+    return {
+        "shape": float(shape),
+        "structure": float(structure),
+        "pattern": float(pattern),
+        "design_score": float(
+            np.clip(
+                design_score,
+                0.0,
+                1.0,
+            )
         ),
     }
 
-    return (
-        final_score,
-        details,
-    )
-
 
 # ============================================================
-# INDEX BUILDING
+# INDEX BUILD
 # ============================================================
 
 
 def build_index(
-    verbose: bool = True,
-) -> dict:
-    """
-    Build a complete ID-based visual index.
+    force=False,
+):
 
-    Every catalogue entry keeps its own:
-    - ID
-    - collection
-    - image
-    - embedding
-    - ORB descriptors
+    catalogue = _load_catalogue()
 
-    This prevents catalogue/index ordering problems.
-    """
+    if not catalogue:
 
-    global _INDEX_CACHE
+        print(
+            "[INDEX] No catalogue items found."
+        )
 
-    DATABASE_DIR.mkdir(
+        return {
+            "indexed": 0,
+            "skipped": 0,
+        }
+
+    if (
+        INDEX_FILE.exists()
+        and not force
+    ):
+
+        print(
+            f"[INDEX] Existing index found: "
+            f"{INDEX_FILE}"
+        )
+
+        return load_index()
+
+    print(
+        "=" * 70
+    )
+
+    print(
+        "DINOv2 INDEX BUILD"
+    )
+
+    print(
+        "=" * 70
+    )
+
+    embeddings = []
+    ids = []
+    collections = []
+    image_paths = []
+    design_ids = []
+
+    skipped = 0
+
+    for index, item in enumerate(
+        catalogue,
+        start=1,
+    ):
+
+        item_id = _item_id(
+            item
+        )
+
+        design_id = _design_id(
+            item
+        )
+
+        collection = _normalize_collection(
+            item.get("collection")
+            or item.get("type")
+            or item.get("category")
+        )
+
+        image_path = _resolve_image_path(
+            item
+        )
+
+        print(
+            f"[INDEX] "
+            f"{index}/"
+            f"{len(catalogue)} "
+            f"{item_id} | "
+            f"{collection}"
+        )
+
+        if (
+            not image_path
+            or not image_path.exists()
+        ):
+
+            print(
+                "[INDEX] SKIP - "
+                "image not found"
+            )
+
+            skipped += 1
+
+            continue
+
+        try:
+
+            embedding = create_embedding(
+                str(image_path)
+            )
+
+            if embedding is None:
+
+                print(
+                    "[INDEX] SKIP - "
+                    "embedding failed"
+                )
+
+                skipped += 1
+
+                continue
+
+            embedding = np.asarray(
+                embedding,
+                dtype=np.float32,
+            )
+
+            norm = np.linalg.norm(
+                embedding
+            )
+
+            if norm == 0:
+
+                print(
+                    "[INDEX] SKIP - "
+                    "zero embedding"
+                )
+
+                skipped += 1
+
+                continue
+
+            embedding = (
+                embedding / norm
+            )
+
+            embeddings.append(
+                embedding
+            )
+
+            ids.append(
+                str(item_id)
+            )
+
+            collections.append(
+                str(collection)
+            )
+
+            image_paths.append(
+                str(image_path)
+            )
+
+            design_ids.append(
+                str(design_id)
+            )
+
+        except Exception as exc:
+
+            print(
+                f"[INDEX] SKIP - "
+                f"{exc}"
+            )
+
+            skipped += 1
+
+    if not embeddings:
+
+        raise RuntimeError(
+            "No catalogue images "
+            "could be embedded."
+        )
+
+    matrix = np.vstack(
+        embeddings
+    ).astype(
+        np.float32
+    )
+
+    INDEX_FILE.parent.mkdir(
         parents=True,
         exist_ok=True,
     )
 
-    catalogue = load_catalogue()
-
-    index = {
-        "version": INDEX_VERSION,
-        "collections": {
-            "gold": {},
-            "prototype": {},
-        },
-        "errors": [],
-    }
-
-    if verbose:
-
-        print()
-        print("=" * 70)
-        print("JEWELMATCH AI - BUILD LIGHTWEIGHT VISUAL INDEX")
-        print("=" * 70)
-        print(f"Catalogue records: {len(catalogue)}")
-
-    for item in catalogue:
-
-        item_id = get_item_id(item)
-
-        collection = normalize_collection(item.get("collection"))
-
-        if not item_id:
-
-            index["errors"].append(
-                {
-                    "reason": "Missing ID",
-                    "item": item,
-                }
-            )
-
-            continue
-
-        if collection not in {
-            "gold",
-            "prototype",
-        }:
-
-            index["errors"].append(
-                {
-                    "id": item_id,
-                    "reason": ("Invalid collection"),
-                }
-            )
-
-            continue
-
-        image_path = resolve_image_path(
-            item,
-            collection,
-        )
-
-        if image_path is None:
-
-            index["errors"].append(
-                {
-                    "id": item_id,
-                    "reason": ("Image not found"),
-                    "image": item.get("image"),
-                }
-            )
-
-            continue
-
-        try:
-
-            if verbose:
-
-                print(
-                    f"[INDEX] {collection.upper():10s} "
-                    f"{item_id:20s} "
-                    f"{image_path.name}"
-                )
-
-            embedding = create_embedding(image_path)
-
-            descriptors = extract_orb_descriptors(image_path)
-
-            index["collections"][collection][item_id] = {
-                "id": item_id,
-                "collection": collection,
-                "image": str(
-                    item.get(
-                        "image",
-                        image_path.name,
-                    )
-                ),
-                "image_path": str(image_path),
-                "embedding": embedding,
-                "descriptors": descriptors,
-            }
-
-        except Exception as error:
-
-            index["errors"].append(
-                {
-                    "id": item_id,
-                    "reason": str(error),
-                }
-            )
-
-            print(f"[INDEX] ERROR {item_id}: {error}")
-
-    temporary_file = INDEX_FILE.with_suffix(".tmp")
-
-    with open(
-        temporary_file,
-        "wb",
-    ) as file:
-
-        pickle.dump(
-            index,
-            file,
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
-
-    temporary_file.replace(INDEX_FILE)
-
-    _INDEX_CACHE = index
-
-    if verbose:
-
-        gold_count = len(index["collections"]["gold"])
-
-        prototype_count = len(index["collections"]["prototype"])
-
-        print()
-        print(f"[INDEX] Gold: {gold_count}")
-
-        print(f"[INDEX] Prototype: {prototype_count}")
-
-        print(f"[INDEX] Errors: " f"{len(index['errors'])}")
-
-        print(f"[INDEX] Saved: {INDEX_FILE}")
-
-        print("=" * 70)
-        print()
-
-    return index
-
-
-# ============================================================
-# INDEX LOADING
-# ============================================================
-
-
-def clear_index_cache() -> None:
-    """
-    Clear in-memory index.
-    """
-
-    global _INDEX_CACHE
-
-    _INDEX_CACHE = None
-
-
-def load_index(
-    rebuild_if_missing: bool = True,
-) -> dict:
-    """
-    Load index from memory/disk.
-    """
-
-    global _INDEX_CACHE
-
-    if _INDEX_CACHE is not None and _INDEX_CACHE.get("version") == INDEX_VERSION:
-        return _INDEX_CACHE
-
-    if not INDEX_FILE.exists():
-
-        if rebuild_if_missing:
-            return build_index()
-
-        return {
-            "version": INDEX_VERSION,
-            "collections": {
-                "gold": {},
-                "prototype": {},
-            },
-            "errors": [],
-        }
-
-    try:
-
-        with open(
-            INDEX_FILE,
-            "rb",
-        ) as file:
-
-            index = pickle.load(file)
-
-        if (
-            not isinstance(
-                index,
-                dict,
-            )
-            or index.get("version") != INDEX_VERSION
-        ):
-
-            if rebuild_if_missing:
-                return build_index()
-
-            return {
-                "version": INDEX_VERSION,
-                "collections": {
-                    "gold": {},
-                    "prototype": {},
-                },
-                "errors": [],
-            }
-
-        _INDEX_CACHE = index
-
-        return index
-
-    except Exception as error:
-
-        print(f"[INDEX] Load error: {error}")
-
-        if rebuild_if_missing:
-            return build_index()
-
-        raise
-
-
-# ============================================================
-# SOURCE COLLECTION
-# ============================================================
-
-
-def _best_collection_score(
-    query_embedding: np.ndarray,
-    collection: str,
-    index: dict,
-) -> tuple[float, str | None]:
-    """
-    Find strongest same-collection visual candidate.
-    """
-
-    entries = index.get(
-        "collections",
-        {},
-    ).get(
-        collection,
-        {},
+    np.savez_compressed(
+        INDEX_FILE,
+        embeddings=matrix,
+        ids=np.array(ids),
+        collections=np.array(collections),
+        image_paths=np.array(image_paths),
+        design_ids=np.array(design_ids),
     )
 
-    best_score = 0.0
-    best_id = None
-
-    for item_id, record in entries.items():
-
-        embedding = record.get("embedding")
-
-        if embedding is None:
-            continue
-
-        score = cosine_similarity(
-            query_embedding,
-            embedding,
-        )
-
-        if score > best_score:
-
-            best_score = score
-            best_id = item_id
-
-    return (
-        best_score,
-        best_id,
+    print(
+        "=" * 70
     )
 
-
-def identify_source_collection(
-    query_embedding: np.ndarray,
-    index: dict | None = None,
-) -> dict:
-    """
-    Determine whether the query is visually closer to the
-    Gold or Prototype collection.
-
-    This is only used to decide the opposite target collection.
-    """
-
-    if index is None:
-        index = load_index()
-
-    gold_score, gold_id = _best_collection_score(
-        query_embedding,
-        "gold",
-        index,
+    print(
+        f"[INDEX] Indexed: "
+        f"{len(embeddings)}"
     )
 
-    prototype_score, prototype_id = _best_collection_score(
-        query_embedding,
-        "prototype",
-        index,
+    print(
+        f"[INDEX] Skipped: "
+        f"{skipped}"
     )
 
-    if gold_score >= prototype_score:
+    print(
+        f"[INDEX] Saved: "
+        f"{INDEX_FILE}"
+    )
 
-        source = "gold"
-
-    else:
-
-        source = "prototype"
-
-    source_score = max(
-        gold_score,
-        prototype_score,
+    print(
+        "=" * 70
     )
 
     return {
-        "source_collection": source,
-        "source_score": source_score,
-        "gold_score": gold_score,
-        "prototype_score": prototype_score,
-        "gold_best_id": gold_id,
-        "prototype_best_id": prototype_id,
+        "indexed": len(embeddings),
+        "skipped": skipped,
     }
 
 
 # ============================================================
-# RESULT CONVERSION
+# LOAD INDEX
 # ============================================================
 
 
-def _catalogue_lookup() -> dict[str, dict]:
-    """
-    Create ID → catalogue metadata map.
-    """
+def load_index():
 
-    lookup = {}
+    if not INDEX_FILE.exists():
 
-    for item in load_catalogue():
+        print(
+            "[MATCHER] Index does not exist."
+        )
 
-        item_id = get_item_id(item)
+        return None
 
-        if item_id:
-            lookup[item_id] = item
+    try:
 
-    return lookup
+        data = np.load(
+            INDEX_FILE,
+            allow_pickle=True,
+        )
+
+        index = {
+            "embeddings": data[
+                "embeddings"
+            ].astype(
+                np.float32
+            ),
+            "ids": data[
+                "ids"
+            ].astype(
+                str
+            ),
+            "collections": data[
+                "collections"
+            ].astype(
+                str
+            ),
+            "image_paths": data[
+                "image_paths"
+            ].astype(
+                str
+            ),
+        }
+
+        if "design_ids" in data:
+
+            index["design_ids"] = data[
+                "design_ids"
+            ].astype(
+                str
+            )
+
+        else:
+
+            index["design_ids"] = (
+                index["ids"]
+            )
+
+        print(
+            f"[MATCHER] Loaded "
+            f"{len(index['ids'])} "
+            f"catalogue embeddings"
+        )
+
+        return index
+
+    except Exception as exc:
+
+        print(
+            f"[MATCHER] Failed to "
+            f"load index: {exc}"
+        )
+
+        return None
 
 
 # ============================================================
-# MATCHING
+# COSINE SIMILARITY
+# ============================================================
+
+
+def _cosine_similarity(
+    query_embedding,
+    matrix,
+):
+
+    query_embedding = np.asarray(
+        query_embedding,
+        dtype=np.float32,
+    )
+
+    query_norm = np.linalg.norm(
+        query_embedding
+    )
+
+    if query_norm == 0:
+
+        return np.zeros(
+            len(matrix),
+            dtype=np.float32,
+        )
+
+    query_embedding = (
+        query_embedding
+        / query_norm
+    )
+
+    matrix_norms = np.linalg.norm(
+        matrix,
+        axis=1,
+        keepdims=True,
+    )
+
+    matrix_norms[
+        matrix_norms == 0
+    ] = 1.0
+
+    normalized_matrix = (
+        matrix
+        / matrix_norms
+    )
+
+    return np.dot(
+        normalized_matrix,
+        query_embedding,
+    )
+
+
+# ============================================================
+# MAIN MATCHING FUNCTION
 # ============================================================
 
 
 def match_jewellery(
-    query_image_path: str | Path,
-    target_collection: str = "auto",
-    top_k: int | None = None,
-) -> dict:
-    """
-    Main jewellery matching function.
+    query_path,
+    top_k=8,
+    search_mode="all",
+):
 
-    Returns:
-
-        matched=True
-            when reliable cross-collection results exist
-
-        matched=False
-            when the image is irrelevant or no reliable
-            catalogue match exists.
-    """
-
-    query_image_path = Path(query_image_path)
-
-    if not query_image_path.exists():
-
-        return {
-            "matched": False,
-            "reason": "query_not_found",
-            "message": ("The uploaded image could not be found."),
-            "results": [],
-        }
-
-    # --------------------------------------------------------
-    # STEP 1 - IMAGE VALIDATION
-    # --------------------------------------------------------
-
-    validation = validate_query_image(query_image_path)
-
-    if not validation["valid"]:
-
-        print("[MATCHER] Query rejected by image validation.")
-
-        for reason in validation["reasons"]:
-
-            print(f"[MATCHER] {reason}")
-
-        return {
-            "matched": False,
-            "reason": "irrelevant_image",
-            "message": (
-                "The uploaded image does not appear "
-                "to contain a suitable jewellery design."
-            ),
-            "validation": validation,
-            "results": [],
-        }
-
-    # --------------------------------------------------------
-    # STEP 2 - LOAD INDEX
-    # --------------------------------------------------------
-
-    index = load_index()
-
-    gold_entries = index["collections"].get(
-        "gold",
-        {},
+    print()
+    print(
+        "=" * 70
     )
 
-    prototype_entries = index["collections"].get(
-        "prototype",
-        {},
+    print(
+        "JEWELMATCH AI - "
+        "DINOv2 CROSS-COLLECTION SEARCH"
     )
 
-    if not gold_entries or not prototype_entries:
+    print(
+        "=" * 70
+    )
+
+    print(
+        f"Query image: "
+        f"{Path(query_path).name}"
+    )
+
+    # --------------------------------------------------------
+    # Normalize search mode
+    # --------------------------------------------------------
+
+    search_mode = _normalize_search_mode(
+        search_mode
+    )
+
+    print(
+        f"[MATCHER] Search mode: "
+        f"{search_mode}"
+    )
+
+    # --------------------------------------------------------
+    # Detect query source collection
+    # --------------------------------------------------------
+
+    source_collection = (
+        _detect_query_collection(
+            query_path
+        )
+    )
+
+    if source_collection:
+
+        print(
+            f"[MATCHER] Detected query "
+            f"collection: "
+            f"{source_collection}"
+        )
+
+    else:
+
+        print(
+            "[MATCHER] Query collection "
+            "could not be detected."
+        )
+
+    # --------------------------------------------------------
+    # Determine target collection(s)
+    # --------------------------------------------------------
+
+    if search_mode == "gold_to_prototype":
+
+        target_collections = {
+            "prototype"
+        }
+
+        target_collection = (
+            "prototype"
+        )
+
+        print(
+            "[MATCHER] MODE: "
+            "GOLD → PROTOTYPE"
+        )
+
+    elif search_mode == "prototype_to_gold":
+
+        target_collections = {
+            "gold"
+        }
+
+        target_collection = (
+            "gold"
+        )
+
+        print(
+            "[MATCHER] MODE: "
+            "PROTOTYPE → GOLD"
+        )
+
+    else:
+
+        # ----------------------------------------------------
+        # IMPORTANT:
+        #
+        # ALL MODE searches BOTH collections.
+        #
+        # It does NOT automatically select one source
+        # collection and search only the opposite collection.
+        # ----------------------------------------------------
+
+        target_collections = {
+            "gold",
+            "prototype",
+        }
+
+        target_collection = "both"
+
+        print(
+            "[MATCHER] MODE: "
+            "ALL COLLECTIONS"
+        )
+
+        print(
+            "[MATCHER] Searching "
+            "Gold + Prototype"
+        )
+
+    print(
+        f"[MATCHER] Target collection: "
+        f"{target_collection}"
+    )
+
+    # --------------------------------------------------------
+    # Validate query
+    # --------------------------------------------------------
+
+    if not os.path.exists(
+        query_path
+    ):
+
+        print(
+            "[MATCHER] Query image "
+            "not found."
+        )
 
         return {
             "matched": False,
-            "reason": "catalogue_not_ready",
-            "message": (
-                "Both Gold and Prototype catalogues " "must contain indexed jewellery."
-            ),
             "results": [],
+            "best_similarity": 0.0,
+            "source_collection": source_collection,
+            "target_collection": target_collection,
+            "search_mode": search_mode,
+            "message": (
+                "Query image not found."
+            ),
         }
 
     # --------------------------------------------------------
-    # STEP 3 - QUERY FEATURES
+    # Query embedding
     # --------------------------------------------------------
 
     try:
 
-        query_embedding = create_embedding(query_image_path)
+        query_embedding = create_embedding(
+            query_path
+        )
 
-        query_descriptors = extract_orb_descriptors(query_image_path)
+    except Exception as exc:
 
-    except Exception as error:
-
-        print(f"[MATCHER] Query feature error: {error}")
+        print(
+            f"[MATCHER] Query "
+            f"embedding failed: "
+            f"{exc}"
+        )
 
         return {
             "matched": False,
-            "reason": "feature_error",
-            "message": ("The uploaded image could not be analysed."),
             "results": [],
+            "best_similarity": 0.0,
+            "source_collection": source_collection,
+            "target_collection": target_collection,
+            "search_mode": search_mode,
+            "message": (
+                "Unable to process "
+                "the uploaded image."
+            ),
+        }
+
+    if query_embedding is None:
+
+        return {
+            "matched": False,
+            "results": [],
+            "best_similarity": 0.0,
+            "source_collection": source_collection,
+            "target_collection": target_collection,
+            "search_mode": search_mode,
+            "message": (
+                "Unable to create "
+                "image embedding."
+            ),
         }
 
     # --------------------------------------------------------
-    # STEP 4 - COLLECTION
+    # Load index
     # --------------------------------------------------------
 
-    source_info = identify_source_collection(
+    index = load_index()
+
+    if index is None:
+
+        return {
+            "matched": False,
+            "results": [],
+            "best_similarity": 0.0,
+            "source_collection": source_collection,
+            "target_collection": target_collection,
+            "search_mode": search_mode,
+            "message": (
+                "Jewellery search index "
+                "is unavailable."
+            ),
+        }
+
+    embeddings = index[
+        "embeddings"
+    ]
+
+    collections = index[
+        "collections"
+    ]
+
+    # --------------------------------------------------------
+    # Calculate similarities
+    # --------------------------------------------------------
+
+    similarities = _cosine_similarity(
         query_embedding,
-        index,
+        embeddings,
     )
 
-    source_collection = source_info["source_collection"]
+    gold_mask = (
+        collections == "gold"
+    )
 
-    source_score = float(source_info["source_score"])
+    prototype_mask = (
+        collections == "prototype"
+    )
 
-    # If caller explicitly provides source collection,
-    # respect it.
-    requested_target = normalize_collection(target_collection)
+    gold_similarity = (
+        float(
+            np.max(
+                similarities[
+                    gold_mask
+                ]
+            )
+        )
+        if np.any(gold_mask)
+        else 0.0
+    )
 
-    if requested_target in {
-        "gold",
-        "prototype",
-    }:
+    prototype_similarity = (
+        float(
+            np.max(
+                similarities[
+                    prototype_mask
+                ]
+            )
+        )
+        if np.any(prototype_mask)
+        else 0.0
+    )
 
-        target = requested_target
+    print(
+        f"[MATCHER] Gold best "
+        f"similarity: "
+        f"{gold_similarity:.4f}"
+    )
 
-        if target == "gold":
-            source_collection = "prototype"
-        else:
-            source_collection = "gold"
+    print(
+        f"[MATCHER] Prototype best "
+        f"similarity: "
+        f"{prototype_similarity:.4f}"
+    )
+
+    # --------------------------------------------------------
+    # Build target mask
+    # --------------------------------------------------------
+
+    if (
+        "gold" in target_collections
+        and "prototype" in target_collections
+    ):
+
+        target_mask = (
+            gold_mask
+            | prototype_mask
+        )
+
+    elif "gold" in target_collections:
+
+        target_mask = gold_mask
+
+    elif "prototype" in target_collections:
+
+        target_mask = prototype_mask
 
     else:
 
-        target = "prototype" if source_collection == "gold" else "gold"
-
-    print()
-    print("=" * 70)
-    print("JEWELMATCH AI - CROSS-COLLECTION SEARCH")
-    print("=" * 70)
-
-    print(f"[MATCHER] Gold similarity: " f"{source_info['gold_score']:.4f}")
-
-    print(f"[MATCHER] Prototype similarity: " f"{source_info['prototype_score']:.4f}")
-
-    print(f"[MATCHER] Source collection: " f"{source_collection}")
-
-    print(f"[MATCHER] Target collection: " f"{target}")
+        target_mask = np.zeros(
+            len(collections),
+            dtype=bool,
+        )
 
     # --------------------------------------------------------
-    # STEP 5 - SOURCE CONFIDENCE
+    # Target collection candidates
     # --------------------------------------------------------
 
-    if source_score < SOURCE_THRESHOLD:
+    target_indices = np.where(
+        target_mask
+    )[0]
+
+    if len(target_indices) == 0:
+
+        print(
+            "[MATCHER] No target "
+            "collection items."
+        )
 
         return {
             "matched": False,
-            "reason": "weak_source_evidence",
-            "message": (
-                "The uploaded image does not have enough "
-                "visual evidence to identify it as a "
-                "catalogue-compatible jewellery design."
-            ),
-            "source_collection": source_collection,
-            "target_collection": target,
-            "source_score": round(
-                source_score,
-                4,
-            ),
-            "gold_score": round(
-                source_info["gold_score"],
-                4,
-            ),
-            "prototype_score": round(
-                source_info["prototype_score"],
-                4,
-            ),
             "results": [],
+            "best_similarity": 0.0,
+            "source_collection": source_collection,
+            "target_collection": target_collection,
+            "search_mode": search_mode,
+            "message": (
+                "No jewellery exists "
+                "in the selected target "
+                "collection."
+            ),
         }
 
-    # --------------------------------------------------------
-    # STEP 6 - TARGET SEARCH
-    # --------------------------------------------------------
+    target_scores = similarities[
+        target_indices
+    ]
 
-    target_entries = index["collections"].get(
-        target,
-        {},
+    order = np.argsort(
+        target_scores
+    )[::-1]
+
+    candidate_count = min(
+        TOP_CANDIDATES,
+        len(order),
     )
 
-    catalogue_lookup = _catalogue_lookup()
+    candidate_indices = [
+        int(
+            target_indices[i]
+        )
+        for i in order[
+            :candidate_count
+        ]
+    ]
 
-    candidates = []
+    # --------------------------------------------------------
+    # DINO candidate log
+    # --------------------------------------------------------
 
-    for item_id, record in target_entries.items():
+    print()
+    print(
+        "[MATCHER] DINO CANDIDATES"
+    )
 
-        candidate_path = Path(
-            record.get(
-                "image_path",
-                "",
+    for rank, idx in enumerate(
+        candidate_indices,
+        start=1,
+    ):
+
+        print(
+            f"  {rank}. "
+            f"{index['design_ids'][idx]} "
+            f"| "
+            f"{index['collections'][idx]} "
+            f"-> "
+            f"{similarities[idx]:.4f}"
+        )
+
+    # --------------------------------------------------------
+    # Best / second
+    # --------------------------------------------------------
+
+    best_idx = candidate_indices[
+        0
+    ]
+
+    best_similarity = float(
+        similarities[
+            best_idx
+        ]
+    )
+
+    second_similarity = (
+        float(
+            similarities[
+                candidate_indices[1]
+            ]
+        )
+        if len(candidate_indices) > 1
+        else 0.0
+    )
+
+    gap = (
+        best_similarity
+        - second_similarity
+    )
+
+    print()
+    print(
+        f"[MATCHER] Best similarity: "
+        f"{best_similarity:.4f}"
+    )
+
+    print(
+        f"[MATCHER] Second similarity: "
+        f"{second_similarity:.4f}"
+    )
+
+    print(
+        f"[MATCHER] Result gap: "
+        f"{gap:.4f}"
+    )
+
+    # ========================================================
+    # DESIGN VERIFICATION
+    # ========================================================
+
+    verified_results = []
+
+    print()
+    print(
+        "=" * 70
+    )
+
+    print(
+        "DESIGN VERIFICATION"
+    )
+
+    print(
+        "=" * 70
+    )
+
+    for rank, idx in enumerate(
+        candidate_indices,
+        start=1,
+    ):
+
+        dino_score = float(
+            similarities[idx]
+        )
+
+        candidate_path = (
+            index["image_paths"][idx]
+        )
+
+        candidate_id = (
+            index["ids"][idx]
+        )
+
+        design_id = (
+            index["design_ids"][idx]
+        )
+
+        candidate_collection = (
+            _normalize_collection(
+                index["collections"][idx]
             )
         )
 
-        if not candidate_path.exists():
+        # ----------------------------------------------------
+        # Catalogue metadata
+        # ----------------------------------------------------
 
-            resolved = resolve_image_path(
-                record.get(
-                    "image",
-                    "",
+        catalogue_item = (
+            _find_catalogue_item(
+                item_id=candidate_id,
+                design_id=design_id,
+                collection=candidate_collection,
+            )
+        )
+
+        item_name = _item_name(
+            catalogue_item
+        )
+
+        item_type = _item_type(
+            catalogue_item
+        )
+
+        item_subtype = _item_subtype(
+            catalogue_item
+        )
+
+        item_sku = _item_sku(
+            catalogue_item
+        )
+
+        # ----------------------------------------------------
+        # Design verification
+        # ----------------------------------------------------
+
+        if (
+            dino_score
+            < DESIGN_CHECK_MIN_DINO
+        ):
+
+            print(
+                f"\n[DESIGN] Candidate "
+                f"{rank}: "
+                f"{design_id}"
+            )
+
+            print(
+                f"[DESIGN] Collection: "
+                f"{candidate_collection}"
+            )
+
+            print(
+                f"[DESIGN] DINO: "
+                f"{dino_score:.4f}"
+            )
+
+            print(
+                "[DESIGN] Skipped - "
+                "DINO score too low"
+            )
+
+            design_features = {
+                "shape": 0.0,
+                "structure": 0.0,
+                "pattern": 0.0,
+                "design_score": 0.0,
+            }
+
+        else:
+
+            design_features = (
+                _calculate_design_features(
+                    query_path,
+                    candidate_path,
+                )
+            )
+
+            print(
+                f"\n[DESIGN] Candidate "
+                f"{rank}: "
+                f"{design_id}"
+            )
+
+            print(
+                f"[DESIGN] Collection: "
+                f"{candidate_collection}"
+            )
+
+            print(
+                f"[DESIGN] Name: "
+                f"{item_name or 'Not available'}"
+            )
+
+            print(
+                f"[DESIGN] DINO: "
+                f"{dino_score:.4f}"
+            )
+
+            print(
+                f"[DESIGN] Shape: "
+                f"{design_features['shape']:.4f}"
+            )
+
+            print(
+                f"[DESIGN] Structure: "
+                f"{design_features['structure']:.4f}"
+            )
+
+            print(
+                f"[DESIGN] Pattern: "
+                f"{design_features['pattern']:.4f}"
+            )
+
+            print(
+                f"[DESIGN] Design score: "
+                f"{design_features['design_score']:.4f}"
+            )
+
+        design_score = (
+            design_features[
+                "design_score"
+            ]
+        )
+
+        # ----------------------------------------------------
+        # Final score
+        # ----------------------------------------------------
+
+        final_score = (
+            dino_score * 0.55
+            + design_score * 0.45
+        )
+
+        # ----------------------------------------------------
+        # Match conditions
+        # ----------------------------------------------------
+
+        direct_dino_match = (
+            dino_score
+            >= DINO_DIRECT_THRESHOLD
+        )
+
+        strong_design_match = (
+            dino_score
+            >= STRONG_DESIGN_DINO_MIN
+            and design_score
+            >= STRONG_DESIGN_THRESHOLD
+            and gap
+            >= MIN_GAP_FOR_WEAK_MATCH
+        )
+
+        final_match = (
+            direct_dino_match
+            or (
+                final_score
+                >= FINAL_MATCH_THRESHOLD
+                and gap
+                >= MIN_GAP_FOR_WEAK_MATCH
+            )
+            or strong_design_match
+        )
+
+        # ----------------------------------------------------
+        # RESULT DATA
+        # ----------------------------------------------------
+
+        verified_results.append(
+            {
+                "rank": rank,
+
+                "id": candidate_id,
+
+                "design_id": design_id,
+
+                "name": item_name,
+
+                "jewellery_name": item_name,
+
+                "jewelry_name": item_name,
+
+                "title": item_name,
+
+                "type": item_type,
+
+                "subtype": item_subtype,
+
+                "sku": item_sku,
+
+                "collection": candidate_collection,
+
+                "image_path": candidate_path,
+
+                "similarity": dino_score,
+
+                "score": final_score,
+
+                "match_score": final_score,
+
+                "similarity_percentage": round(
+                    final_score * 100,
+                    2,
                 ),
-                target,
-            )
 
-            if resolved is None:
-                continue
+                "dino_similarity": dino_score,
 
-            candidate_path = resolved
+                "shape_similarity": (
+                    design_features[
+                        "shape"
+                    ]
+                ),
 
-        try:
+                "structure_similarity": (
+                    design_features[
+                        "structure"
+                    ]
+                ),
 
-            candidate_embedding = np.asarray(
-                record.get("embedding"),
-                dtype=np.float32,
-            )
+                "pattern_similarity": (
+                    design_features[
+                        "pattern"
+                    ]
+                ),
 
-            candidate_descriptors = record.get(
-                "descriptors",
-                {},
-            )
+                "design_score": design_score,
 
-            score, details = calculate_match_score(
-                query_embedding,
-                candidate_embedding,
-                query_image_path,
-                candidate_path,
-                query_descriptors,
-                candidate_descriptors,
-            )
+                "search_mode": search_mode,
+            }
+        )
 
-            candidates.append(
-                {
-                    "id": item_id,
-                    "score": score,
-                    "details": details,
-                    "image_path": str(candidate_path),
-                }
-            )
+    # ========================================================
+    # SORT RESULTS
+    # ========================================================
 
-        except Exception as error:
-
-            print(f"[MATCHER] Candidate error " f"{item_id}: {error}")
-
-    if not candidates:
-
-        return {
-            "matched": False,
-            "reason": "no_candidates",
-            "message": (
-                "No indexed jewellery is available " "in the target collection."
-            ),
-            "source_collection": source_collection,
-            "target_collection": target,
-            "results": [],
-        }
-
-    # --------------------------------------------------------
-    # STEP 7 - RANK
-    # --------------------------------------------------------
-
-    candidates.sort(
-        key=lambda item: item["score"],
+    verified_results.sort(
+        key=lambda x: x["score"],
         reverse=True,
     )
 
-    best_candidate = candidates[0]
+    # Reassign rank after combined sorting.
+    for rank, result in enumerate(
+        verified_results,
+        start=1,
+    ):
 
-    best_score = float(best_candidate["score"])
+        result["rank"] = rank
 
-    # --------------------------------------------------------
-    # STEP 8 - NO-MATCH GATE
-    # --------------------------------------------------------
-
-    if best_score < MATCH_THRESHOLD:
-
-        print(
-            f"[MATCHER] NO MATCH - "
-            f"best score {best_score:.4f} "
-            f"< threshold {MATCH_THRESHOLD:.4f}"
-        )
-
-        return {
-            "matched": False,
-            "reason": "low_similarity",
-            "message": ("No reliable jewellery design match " "was found."),
-            "source_collection": source_collection,
-            "target_collection": target,
-            "source_score": round(
-                source_score,
-                4,
-            ),
-            "best_similarity": round(
-                best_score,
-                4,
-            ),
-            "threshold": MATCH_THRESHOLD,
-            "results": [],
-        }
-
-    # --------------------------------------------------------
-    # STEP 9 - FILTER WEAK SECONDARY RESULTS
-    # --------------------------------------------------------
-
-    minimum_result_score = max(
-        MATCH_THRESHOLD,
-        best_score - RESULT_GAP,
+    best_result = (
+        verified_results[0]
+        if verified_results
+        else None
     )
 
-    accepted_candidates = [
-        candidate
-        for candidate in candidates
-        if candidate["score"] >= minimum_result_score
-    ]
+    # ========================================================
+    # FINAL DECISION
+    # ========================================================
 
-    accepted_candidates = accepted_candidates[: (top_k or TOP_K)]
+    matched = False
 
-    # --------------------------------------------------------
-    # STEP 10 - BUILD RESPONSE
-    # --------------------------------------------------------
+    if best_result:
 
-    results = []
-
-    for candidate in accepted_candidates:
-
-        item_id = candidate["id"]
-
-        metadata = catalogue_lookup.get(
-            item_id,
-            {},
+        final_score = float(
+            best_result["score"]
         )
 
-        image_path = Path(candidate["image_path"])
-
-        image_value = metadata.get(
-            "image",
-            image_path.name,
+        best_dino = float(
+            best_result[
+                "dino_similarity"
+            ]
         )
 
-        similarity = float(candidate["score"])
+        best_design = float(
+            best_result[
+                "design_score"
+            ]
+        )
 
-        result = {
-            "id": item_id,
-            "jewellery_id": item_id,
-            "name": metadata.get(
-                "name",
-                metadata.get(
-                    "title",
-                    item_id,
-                ),
-            ),
-            "collection": target,
-            "gender": metadata.get(
-                "gender",
-                "",
-            ),
-            "type": metadata.get(
-                "type",
-                "Ring",
-            ),
-            "subtype": metadata.get(
-                "subtype",
-                "",
-            ),
-            "description": metadata.get(
-                "description",
-                "",
-            ),
-            "image": str(image_value),
-            "image_path": str(image_path),
-            "similarity": round(
-                similarity,
-                4,
-            ),
-            "score": round(
-                similarity,
-                4,
-            ),
-            "match_score": round(
-                similarity * 100,
-                1,
-            ),
-            "match_details": candidate["details"],
-        }
+        print()
+        print(
+            "=" * 70
+        )
 
-        results.append(result)
+        print(
+            "FINAL MATCH ANALYSIS"
+        )
 
-    if not results:
+        print(
+            "=" * 70
+        )
+
+        print(
+            f"[MATCHER] Candidate: "
+            f"{best_result['design_id']}"
+        )
+
+        print(
+            f"[MATCHER] Collection: "
+            f"{best_result['collection']}"
+        )
+
+        print(
+            f"[MATCHER] Name: "
+            f"{best_result['name'] or 'Not available'}"
+        )
+
+        print(
+            f"[MATCHER] DINO similarity: "
+            f"{best_dino:.4f}"
+        )
+
+        print(
+            f"[MATCHER] Shape similarity: "
+            f"{best_result['shape_similarity']:.4f}"
+        )
+
+        print(
+            f"[MATCHER] Structure similarity: "
+            f"{best_result['structure_similarity']:.4f}"
+        )
+
+        print(
+            f"[MATCHER] Pattern similarity: "
+            f"{best_result['pattern_similarity']:.4f}"
+        )
+
+        print(
+            f"[MATCHER] Design score: "
+            f"{best_design:.4f}"
+        )
+
+        print(
+            f"[MATCHER] Final score: "
+            f"{final_score:.4f}"
+        )
+
+        print(
+            f"[MATCHER] DINO threshold: "
+            f"{DINO_DIRECT_THRESHOLD:.4f}"
+        )
+
+        print(
+            f"[MATCHER] Final threshold: "
+            f"{FINAL_MATCH_THRESHOLD:.4f}"
+        )
+
+        if (
+            best_dino
+            >= DINO_DIRECT_THRESHOLD
+        ):
+
+            matched = True
+
+            print(
+                "[MATCHER] STATUS: MATCH"
+            )
+
+            print(
+                "[MATCHER] REASON: "
+                "DINO similarity is "
+                "above threshold"
+            )
+
+        elif (
+            final_score
+            >= FINAL_MATCH_THRESHOLD
+            and gap
+            >= MIN_GAP_FOR_WEAK_MATCH
+        ):
+
+            matched = True
+
+            print(
+                "[MATCHER] STATUS: MATCH"
+            )
+
+            print(
+                "[MATCHER] REASON: "
+                "Strong combined "
+                "design evidence"
+            )
+
+        elif (
+            best_dino
+            >= STRONG_DESIGN_DINO_MIN
+            and best_design
+            >= STRONG_DESIGN_THRESHOLD
+            and gap
+            >= MIN_GAP_FOR_WEAK_MATCH
+        ):
+
+            matched = True
+
+            print(
+                "[MATCHER] STATUS: MATCH"
+            )
+
+            print(
+                "[MATCHER] REASON: "
+                "Strong design evidence"
+            )
+
+        else:
+
+            print(
+                "[MATCHER] STATUS: "
+                "NO MATCH"
+            )
+
+            print(
+                "[MATCHER] REASON: "
+                "Insufficient design evidence"
+            )
+
+            print(
+                "[MATCHER] Difference "
+                "from final threshold: "
+                f"{final_score - FINAL_MATCH_THRESHOLD:+.4f}"
+            )
+
+    else:
+
+        print(
+            "[MATCHER] STATUS: "
+            "NO MATCH"
+        )
+
+    print(
+        "=" * 70
+    )
+
+    # ========================================================
+    # NO MATCH
+    # ========================================================
+
+    if not matched:
 
         return {
             "matched": False,
-            "reason": "no_reliable_results",
-            "message": ("No reliable jewellery match " "was found."),
-            "source_collection": source_collection,
-            "target_collection": target,
+
             "results": [],
+
+            "best_similarity": (
+                best_similarity
+            ),
+
+            "source_collection": (
+                source_collection
+            ),
+
+            "target_collection": (
+                target_collection
+            ),
+
+            "search_mode": (
+                search_mode
+            ),
+
+            "second_similarity": (
+                second_similarity
+            ),
+
+            "result_gap": gap,
+
+            "message": (
+                "No reliable "
+                "jewellery design "
+                "match was found."
+            ),
         }
 
-    print(f"[MATCHER] Returning " f"{len(results)} results")
-
-    print(f"[MATCHER] Best similarity: " f"{best_score:.4f}")
-
-    print(f"[MATCHER] Best match: " f"{results[0]['name']}")
+    # ========================================================
+    # MATCH
+    # ========================================================
 
     return {
         "matched": True,
-        "message": ("Reliable jewellery matches found."),
-        "source_collection": source_collection,
-        "target_collection": target,
-        "source_score": round(
-            source_score,
-            4,
+
+        "results": (
+            verified_results[:top_k]
         ),
-        "best_similarity": round(
-            best_score,
-            4,
+
+        "best_similarity": (
+            best_similarity
         ),
-        "best_match_score": round(
-            best_score * 100,
-            1,
+
+        "source_collection": (
+            source_collection
         ),
-        "results": results,
+
+        "target_collection": (
+            target_collection
+        ),
+
+        "search_mode": (
+            search_mode
+        ),
+
+        "second_similarity": (
+            second_similarity
+        ),
+
+        "result_gap": gap,
     }
 
 
 # ============================================================
-# COMPATIBILITY ALIAS
+# CLI
 # ============================================================
 
-
-def find_matches(
-    query_image_path: str | Path,
-    top_k: int = TOP_K,
-) -> list[dict]:
-    """
-    Backward-compatible helper for older code.
-
-    Returns only result list.
-    """
-
-    response = match_jewellery(
-        query_image_path,
-        target_collection="auto",
-        top_k=top_k,
-    )
-
-    return response.get(
-        "results",
-        [],
-    )
-
-
-# ============================================================
-# TEST
-# ============================================================
 
 if __name__ == "__main__":
 
@@ -1514,21 +2353,51 @@ if __name__ == "__main__":
 
     if len(sys.argv) < 2:
 
-        print("Usage:")
+        print(
+            "Usage:"
+        )
 
-        print("python -m backend.services.matcher " "path_to_query_image")
+        print(
+            "python -m "
+            "backend.services.matcher "
+            "<image_path>"
+        )
 
         raise SystemExit(1)
 
-    query = Path(sys.argv[1])
+    query = sys.argv[1]
 
-    response = match_jewellery(query)
+    # Optional CLI search mode.
+    #
+    # Example:
+    #
+    # python -m backend.services.matcher image.jpg all
+    #
+    # python -m backend.services.matcher image.jpg gold_to_prototype
+    #
+    # python -m backend.services.matcher image.jpg prototype_to_gold
+
+    cli_search_mode = (
+        sys.argv[2]
+        if len(sys.argv) >= 3
+        else "all"
+    )
+
+    result = match_jewellery(
+        query,
+        top_k=8,
+        search_mode=cli_search_mode,
+    )
 
     print()
 
     print(
+        "FINAL RESULT"
+    )
+
+    print(
         json.dumps(
-            response,
+            result,
             indent=2,
             default=str,
         )

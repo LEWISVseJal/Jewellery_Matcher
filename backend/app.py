@@ -1,7 +1,7 @@
 """
 JewelMatch AI - Flask Backend
 
-DINOv2-Small / CPU / Render-safe backend.
+DINOv2-Base / CPU / Visual Search Backend.
 
 Main features:
     - Jewellery image matching
@@ -15,6 +15,7 @@ Main features:
     - Rebuild visual index
     - Serve catalogue images
     - Serve uploaded images
+    - Lightweight jewellery segmentation
 """
 
 from __future__ import annotations
@@ -44,11 +45,13 @@ from werkzeug.utils import secure_filename
 
 from .services.matcher import (
     match_jewellery,
-    build_index,
     load_index,
+    build_index,
 )
 
-from .services.segmentation import segment_jewellery
+from .services.segmentation import (
+    segment_jewellery,
+)
 
 # ============================================================
 # PATH CONFIGURATION
@@ -96,7 +99,7 @@ CORS(app)
 
 
 # ============================================================
-# FLASK CONFIG
+# FLASK CONFIGURATION
 # ============================================================
 
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
@@ -118,7 +121,7 @@ ALLOWED_EXTENSIONS = {
 
 
 # ============================================================
-# CREATE DIRECTORIES
+# CREATE REQUIRED DIRECTORIES
 # ============================================================
 
 for directory in [
@@ -153,10 +156,16 @@ def load_catalogue() -> list:
             "r",
             encoding="utf-8",
         ) as file:
+
             data = json.load(file)
 
     except Exception as exc:
-        print("[CATALOGUE] Failed to load JSON:", exc)
+
+        print(
+            "[CATALOGUE] Failed to load JSON:",
+            exc,
+        )
+
         return []
 
     if isinstance(data, list):
@@ -170,13 +179,20 @@ def load_catalogue() -> list:
             "catalogue",
             "data",
         ]:
-            if isinstance(data.get(key), list):
+
+            if isinstance(
+                data.get(key),
+                list,
+            ):
+
                 return data[key]
 
     return []
 
 
-def save_catalogue(catalogue: list) -> None:
+def save_catalogue(
+    catalogue: list,
+) -> None:
     """
     Save catalogue JSON safely.
     """
@@ -209,7 +225,9 @@ def save_catalogue(catalogue: list) -> None:
 # ============================================================
 
 
-def allowed_file(filename: str) -> bool:
+def allowed_file(
+    filename: str,
+) -> bool:
     """
     Check supported image extension.
     """
@@ -260,6 +278,7 @@ def normalize_collection(
         "gold_img",
         "finished",
     ]:
+
         return "gold"
 
     if value in [
@@ -267,6 +286,7 @@ def normalize_collection(
         "prototype_img",
         "green",
     ]:
+
         return "prototype"
 
     return None
@@ -369,6 +389,7 @@ def generate_unique_filename(
     extension = ""
 
     if "." in original_filename:
+
         extension = (
             "."
             + original_filename.rsplit(
@@ -429,9 +450,11 @@ def find_catalogue_item(
     for index, item in enumerate(catalogue):
 
         if str(item.get("id", "")) == item_id:
+
             return index, item
 
         if str(item.get("design_id", "")) == item_id:
+
             return index, item
 
     return None, None
@@ -465,6 +488,7 @@ def get_item_image_path(
         if item.get(key):
 
             raw_path = str(item[key])
+
             break
 
     if not raw_path:
@@ -480,6 +504,7 @@ def get_item_image_path(
     path = Path(raw_path)
 
     if path.is_absolute():
+
         candidate_paths.append(path)
 
     candidate_paths.extend(
@@ -496,9 +521,11 @@ def get_item_image_path(
     for candidate in candidate_paths:
 
         try:
+
             candidate = candidate.resolve()
 
         except Exception:
+
             continue
 
         candidate_string = str(candidate)
@@ -510,8 +537,6 @@ def get_item_image_path(
 
         if candidate.exists():
             return candidate
-
-    # Filename fallback.
 
     filename = Path(raw_path).name
 
@@ -570,6 +595,7 @@ def image_url_for_item(
         )
 
     except ValueError:
+
         return None
 
 
@@ -593,7 +619,6 @@ def serialize_catalogue_item(
 
         result["image_url"] = image_url
 
-        # Backward compatibility.
         result["image"] = image_url
 
     return result
@@ -705,6 +730,8 @@ def health():
             "success": True,
             "status": "healthy",
             "service": "JewelMatch AI",
+            "model": "DINOv2-Base",
+            "embedding_size": 768,
         }
     )
 
@@ -751,12 +778,42 @@ def catalogue_response():
 
             searchable = " ".join(
                 [
-                    str(item.get("id", "")),
-                    str(item.get("design_id", "")),
-                    str(item.get("name", "")),
-                    str(item.get("design_name", "")),
-                    str(item.get("description", "")),
-                    str(item.get("collection", "")),
+                    str(
+                        item.get(
+                            "id",
+                            "",
+                        )
+                    ),
+                    str(
+                        item.get(
+                            "design_id",
+                            "",
+                        )
+                    ),
+                    str(
+                        item.get(
+                            "name",
+                            "",
+                        )
+                    ),
+                    str(
+                        item.get(
+                            "design_name",
+                            "",
+                        )
+                    ),
+                    str(
+                        item.get(
+                            "description",
+                            "",
+                        )
+                    ),
+                    str(
+                        item.get(
+                            "collection",
+                            "",
+                        )
+                    ),
                 ]
             ).lower()
 
@@ -813,17 +870,6 @@ def get_catalogue():
 
 # ============================================================
 # CATALOGUE API COMPATIBILITY ALIAS
-# ============================================================
-#
-# Your catalogue.js was previously requesting:
-#
-#     /api/jewellery
-#
-# while the backend exposed:
-#
-#     /api/catalogue
-#
-# Keep both endpoints working.
 # ============================================================
 
 
@@ -887,10 +933,6 @@ def add_jewellery():
 
     try:
 
-        # ----------------------------------------------------
-        # Collection
-        # ----------------------------------------------------
-
         collection = request.form.get("collection") or request.form.get("category")
 
         collection = normalize_collection(collection)
@@ -906,10 +948,6 @@ def add_jewellery():
                 ),
                 400,
             )
-
-        # ----------------------------------------------------
-        # Image
-        # ----------------------------------------------------
 
         image_file = request.files.get("image") or request.files.get("file")
 
@@ -953,10 +991,6 @@ def add_jewellery():
                 400,
             )
 
-        # ----------------------------------------------------
-        # Catalogue
-        # ----------------------------------------------------
-
         catalogue = load_catalogue()
 
         item_id = request.form.get("id") or request.form.get("design_id")
@@ -987,10 +1021,6 @@ def add_jewellery():
                 409,
             )
 
-        # ----------------------------------------------------
-        # Save original image
-        # ----------------------------------------------------
-
         original_filename = image_file.filename
 
         safe_filename = generate_unique_filename(original_filename)
@@ -1018,10 +1048,6 @@ def add_jewellery():
 
         image_file.save(str(image_path))
 
-        # ----------------------------------------------------
-        # Lightweight segmentation
-        # ----------------------------------------------------
-
         segmented_folder = DATABASE_DIR / "segmented_catalogue" / collection
 
         segmented_folder.mkdir(
@@ -1048,10 +1074,6 @@ def add_jewellery():
             )
 
             segmented_path = None
-
-        # ----------------------------------------------------
-        # Metadata
-        # ----------------------------------------------------
 
         relative_image_path = str(image_path.relative_to(PROJECT_DIR)).replace(
             "\\",
@@ -1081,10 +1103,6 @@ def add_jewellery():
                 "/",
             )
 
-        # ----------------------------------------------------
-        # Custom fields
-        # ----------------------------------------------------
-
         reserved_fields = {
             "collection",
             "category",
@@ -1109,10 +1127,6 @@ def add_jewellery():
 
         save_catalogue(catalogue)
 
-        # ----------------------------------------------------
-        # Rebuild DINO index
-        # ----------------------------------------------------
-
         try:
 
             build_index(force=True)
@@ -1120,7 +1134,7 @@ def add_jewellery():
         except Exception as exc:
 
             print(
-                "[ADD] DINO index rebuild failed:",
+                "[ADD] DINOv2-Base index rebuild failed:",
                 exc,
             )
 
@@ -1132,7 +1146,7 @@ def add_jewellery():
                             "Jewellery added, but " "visual index rebuild failed."
                         ),
                         "warning": str(exc),
-                        "item": (serialize_catalogue_item(item)),
+                        "item": serialize_catalogue_item(item),
                     }
                 ),
                 201,
@@ -1143,7 +1157,7 @@ def add_jewellery():
                 {
                     "success": True,
                     "message": ("Jewellery added successfully."),
-                    "item": (serialize_catalogue_item(item)),
+                    "item": serialize_catalogue_item(item),
                 }
             ),
             201,
@@ -1201,10 +1215,6 @@ def update_jewellery(item_id):
                 404,
             )
 
-        # ----------------------------------------------------
-        # JSON or form data
-        # ----------------------------------------------------
-
         if request.is_json:
 
             data = request.get_json(silent=True) or {}
@@ -1212,10 +1222,6 @@ def update_jewellery(item_id):
         else:
 
             data = request.form.to_dict()
-
-        # ----------------------------------------------------
-        # Collection
-        # ----------------------------------------------------
 
         old_collection = normalize_collection(item.get("collection"))
 
@@ -1228,10 +1234,6 @@ def update_jewellery(item_id):
 
         if new_collection is None:
             new_collection = old_collection
-
-        # ----------------------------------------------------
-        # Update fields
-        # ----------------------------------------------------
 
         editable_fields = [
             "name",
@@ -1247,15 +1249,12 @@ def update_jewellery(item_id):
                 value = data.get(field)
 
                 if value is not None:
+
                     item[field] = str(value)
 
         item["collection"] = new_collection
 
         item["category"] = new_collection
-
-        # ----------------------------------------------------
-        # Replace image
-        # ----------------------------------------------------
 
         image_file = request.files.get("image") or request.files.get("file")
 
@@ -1285,13 +1284,12 @@ def update_jewellery(item_id):
                     400,
                 )
 
-            # Delete old image.
-
             old_image_path = get_item_image_path(item)
 
             if old_image_path and old_image_path.exists():
 
                 try:
+
                     old_image_path.unlink()
 
                 except Exception as exc:
@@ -1300,8 +1298,6 @@ def update_jewellery(item_id):
                         "[UPDATE] Could not delete old image:",
                         exc,
                     )
-
-            # Save new image.
 
             collection_folder = get_collection_folder(new_collection)
 
@@ -1339,8 +1335,6 @@ def update_jewellery(item_id):
 
             item["original_filename"] = image_file.filename
 
-            # Create lightweight processed image.
-
             segmented_folder = DATABASE_DIR / "segmented_catalogue" / new_collection
 
             segmented_folder.mkdir(
@@ -1373,25 +1367,40 @@ def update_jewellery(item_id):
                     exc,
                 )
 
-        # ----------------------------------------------------
-        # Save catalogue
-        # ----------------------------------------------------
-
         catalogue[index] = item
 
         save_catalogue(catalogue)
 
-        # ----------------------------------------------------
-        # Rebuild DINO index
-        # ----------------------------------------------------
+        try:
 
-        build_index(force=True)
+            build_index(force=True)
+
+        except Exception as exc:
+
+            print(
+                "[UPDATE] DINOv2-Base index rebuild failed:",
+                exc,
+            )
+
+            return (
+                jsonify(
+                    {
+                        "success": True,
+                        "message": (
+                            "Jewellery updated, but " "visual index rebuild failed."
+                        ),
+                        "warning": str(exc),
+                        "item": serialize_catalogue_item(item),
+                    }
+                ),
+                200,
+            )
 
         return jsonify(
             {
                 "success": True,
                 "message": ("Jewellery updated successfully."),
-                "item": (serialize_catalogue_item(item)),
+                "item": serialize_catalogue_item(item),
             }
         )
 
@@ -1447,15 +1456,12 @@ def delete_jewellery(item_id):
                 404,
             )
 
-        # ----------------------------------------------------
-        # Delete original image
-        # ----------------------------------------------------
-
         image_path = get_item_image_path(item)
 
         if image_path and image_path.exists():
 
             try:
+
                 image_path.unlink()
 
             except Exception as exc:
@@ -1464,10 +1470,6 @@ def delete_jewellery(item_id):
                     "[DELETE] Could not delete image:",
                     exc,
                 )
-
-        # ----------------------------------------------------
-        # Delete segmented image
-        # ----------------------------------------------------
 
         segmented_raw = item.get("segmented_image")
 
@@ -1481,6 +1483,7 @@ def delete_jewellery(item_id):
             if segmented_path.exists():
 
                 try:
+
                     segmented_path.unlink()
 
                 except Exception as exc:
@@ -1490,17 +1493,9 @@ def delete_jewellery(item_id):
                         exc,
                     )
 
-        # ----------------------------------------------------
-        # Remove from JSON
-        # ----------------------------------------------------
-
         deleted_item = catalogue.pop(index)
 
         save_catalogue(catalogue)
-
-        # ----------------------------------------------------
-        # Rebuild DINO index
-        # ----------------------------------------------------
 
         try:
 
@@ -1509,14 +1504,16 @@ def delete_jewellery(item_id):
         except Exception as exc:
 
             print(
-                "[DELETE] DINO index rebuild failed:",
+                "[DELETE] DINOv2-Base index rebuild failed:",
                 exc,
             )
 
             return jsonify(
                 {
                     "success": True,
-                    "message": ("Jewellery deleted, but " "index rebuild failed."),
+                    "message": (
+                        "Jewellery deleted, but " "visual index rebuild failed."
+                    ),
                     "warning": str(exc),
                     "item": deleted_item,
                 }
@@ -1564,10 +1561,6 @@ def match():
     query_path = None
 
     try:
-
-        # ----------------------------------------------------
-        # Receive uploaded file
-        # ----------------------------------------------------
 
         image_file = (
             request.files.get("image")
@@ -1621,10 +1614,6 @@ def match():
                 400,
             )
 
-        # ----------------------------------------------------
-        # Save temporary query image
-        # ----------------------------------------------------
-
         safe_original_name = secure_filename(image_file.filename)
 
         query_filename = f"query_" f"{uuid.uuid4().hex[:12]}_" f"{safe_original_name}"
@@ -1633,29 +1622,23 @@ def match():
 
         image_file.save(str(query_path))
 
-        # ----------------------------------------------------
-        # Top K
-        # ----------------------------------------------------
-
         top_k_raw = request.form.get(
             "top_k",
             "8",
         )
 
         try:
+
             top_k = int(top_k_raw)
 
         except Exception:
+
             top_k = 8
 
         top_k = max(
             1,
             min(top_k, 20),
         )
-
-        # ----------------------------------------------------
-        # SEARCH MODE
-        # ----------------------------------------------------
 
         search_mode = normalize_search_mode(
             request.form.get(
@@ -1668,30 +1651,11 @@ def match():
 
         print("\n[MATCH API]" f" Search mode: {search_mode}" f" ({search_mode_label})")
 
-        # ----------------------------------------------------
-        # MATCH JEWELLERY
-        # ----------------------------------------------------
-        #
-        # IMPORTANT:
-        #
-        # The frontend sends:
-        #
-        #   all
-        #   gold_to_prototype
-        #   prototype_to_gold
-        #
-        # Pass it directly to matcher.py.
-        # ----------------------------------------------------
-
         result = match_jewellery(
             query_path,
             top_k=top_k,
             search_mode=search_mode,
         )
-
-        # ----------------------------------------------------
-        # Normalize matcher response
-        # ----------------------------------------------------
 
         if not isinstance(
             result,
@@ -1711,17 +1675,9 @@ def match():
         if "success" not in result:
             result["success"] = True
 
-        # ----------------------------------------------------
-        # Preserve matcher decision
-        # ----------------------------------------------------
-
         if "matched" not in result:
 
             result["matched"] = bool(result.get("results"))
-
-        # ----------------------------------------------------
-        # Similarity compatibility
-        # ----------------------------------------------------
 
         best_similarity = result.get("best_similarity")
 
@@ -1747,34 +1703,30 @@ def match():
         result["best_similarity"] = best_similarity
 
         if "similarity" not in result:
+
             result["similarity"] = best_similarity
 
         if "score" not in result:
-            result["score"] = best_similarity
 
-        # ----------------------------------------------------
-        # Search mode information
-        # ----------------------------------------------------
+            result["score"] = best_similarity
 
         result["search_mode"] = search_mode
 
         result["search_mode_label"] = search_mode_label
 
-        # ----------------------------------------------------
-        # Query information
-        # ----------------------------------------------------
-
         result["query_filename"] = query_filename
 
         if "source_collection" not in result:
+
             result["source_collection"] = None
 
         if "target_collection" not in result:
+
             result["target_collection"] = None
 
-        # ----------------------------------------------------
-        # Logging
-        # ----------------------------------------------------
+        result["model"] = "DINOv2-Base"
+
+        result["embedding_size"] = 768
 
         print(
             "\n[MATCH API]"
@@ -1808,6 +1760,8 @@ def match():
                     "similarity": 0.0,
                     "score": 0.0,
                     "best_similarity": 0.0,
+                    "model": "DINOv2-Base",
+                    "embedding_size": 768,
                 }
             ),
             500,
@@ -1815,13 +1769,10 @@ def match():
 
     finally:
 
-        # ----------------------------------------------------
-        # Delete temporary uploaded image
-        # ----------------------------------------------------
-
         if query_path and query_path.exists():
 
             try:
+
                 query_path.unlink()
 
             except Exception as exc:
@@ -1845,7 +1796,7 @@ def rebuild_index():
 
     try:
 
-        print("\n[INDEX] Manual DINO index rebuild requested.")
+        print("\n[INDEX] Manual DINOv2-Base " "index rebuild requested.")
 
         index = build_index(force=True)
 
@@ -1871,6 +1822,8 @@ def rebuild_index():
                 "success": True,
                 "message": ("Visual index rebuilt successfully."),
                 "version": index.get("version"),
+                "model": "DINOv2-Base",
+                "embedding_size": 768,
                 "total": len(entries),
                 "gold_count": gold_count,
                 "prototype_count": prototype_count,
@@ -1933,6 +1886,8 @@ def index_status():
             {
                 "success": True,
                 "version": index.get("version"),
+                "model": "DINOv2-Base",
+                "embedding_size": 768,
                 "total": len(entries),
                 "gold_count": gold_count,
                 "prototype_count": prototype_count,
@@ -2120,7 +2075,12 @@ def startup():
 
     print(
         "Matching:",
-        "DINOv2-Small / Visual Search",
+        "DINOv2-Base / 768D / CPU / Visual Search",
+    )
+
+    print(
+        "Segmentation:",
+        "Lightweight OpenCV",
     )
 
     print(

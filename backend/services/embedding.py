@@ -1,84 +1,98 @@
 """
-JewelMatch AI
-DINOv2-Small embedding service
+JewelMatch AI - DINOv2-Base Embedding Service
 
-Design goals:
-- CPU friendly
-- Render friendly
-- Load DINO only once
-- 384-dimensional embeddings
-- Multiple views for jewellery
-- Reduced dependence on colour
+Purpose:
+- DINOv2-Base visual embeddings
+- 768-dimensional normalized embeddings
+- Reduce colour/material influence
+- Use multiple jewellery-focused views
+- Use shared segmentation.py
+- Batch all views in a single DINO inference call
+- Compatible with matcher.py
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Optional, List
 
 import cv2
 import numpy as np
 import torch
-from PIL import Image
 
+from PIL import Image, ImageEnhance
 from transformers import AutoImageProcessor, AutoModel
+
+from .segmentation import get_segmented_crop
 
 # ============================================================
 # CONFIGURATION
 # ============================================================
 
-MODEL_NAME = os.getenv("DINO_MODEL", "facebook/dinov2-small")
+MODEL_NAME = "facebook/dinov2-base"
+DEVICE = "cpu"
 
+EMBEDDING_SIZE = 768
 MAX_IMAGE_SIZE = 768
 
-# DINOv2-Small output dimension
-EMBEDDING_SIZE = 384
+# Number of views:
+# 1. Original
+# 2. Grayscale
+# 3. Contrast grayscale
+# 4. Jewellery-focused crop
 
-DEVICE = torch.device("cpu")
+VIEW_WEIGHTS = np.array(
+    [
+        0.15,  # Original
+        0.30,  # Grayscale
+        0.20,  # Contrast grayscale
+        0.35,  # Jewellery crop
+    ],
+    dtype=np.float32,
+)
 
-# Prevent excessive CPU threading on Render
+
+# ============================================================
+# CPU SETTINGS
+# ============================================================
+
 try:
-    torch.set_num_threads(max(1, min(4, os.cpu_count() or 1)))
+    torch.set_num_threads(min(max(torch.get_num_threads(), 1), 4))
 except Exception:
     pass
 
 
 # ============================================================
-# GLOBAL MODEL
+# MODEL CACHE
 # ============================================================
 
 _processor = None
 _model = None
 
 
-def get_model():
-    """
-    Load DINOv2 only once.
+def _load_model():
+    """Load DINOv2-Base lazily."""
 
-    Important:
-    Never call AutoModel.from_pretrained() for every image.
-    """
+    global _processor
+    global _model
 
-    global _processor, _model
-
-    if _model is not None:
+    if _processor is not None and _model is not None:
         return _processor, _model
 
     print("=" * 70)
-    print("[DINO] Loading DINOv2-Small")
-    print(f"[DINO] Model: {MODEL_NAME}")
-    print(f"[DINO] Device: {DEVICE}")
+    print("[EMBEDDING] Loading DINOv2-Base")
     print("=" * 70)
+    print(f"[EMBEDDING] Model: {MODEL_NAME}")
+    print(f"[EMBEDDING] Device: {DEVICE}")
+    print(f"[EMBEDDING] Dimension: {EMBEDDING_SIZE}")
 
     _processor = AutoImageProcessor.from_pretrained(MODEL_NAME)
 
-    _model = AutoModel.from_pretrained(MODEL_NAME, torch_dtype=torch.float32)
+    _model = AutoModel.from_pretrained(MODEL_NAME)
 
     _model.to(DEVICE)
     _model.eval()
 
-    print("[DINO] Model loaded successfully")
+    print("[EMBEDDING] DINOv2-Base loaded successfully")
 
     return _processor, _model
 
@@ -88,332 +102,371 @@ def get_model():
 # ============================================================
 
 
-def load_image(image_path: str) -> Optional[Image.Image]:
-    """
-    Load image and resize it before sending to DINO.
-    """
+def load_image(image_path):
+    """Load image as RGB PIL image."""
 
-    try:
-        image = Image.open(image_path).convert("RGB")
+    path = Path(image_path)
 
-        width, height = image.size
+    if not path.exists():
+        raise FileNotFoundError(f"Image not found: {image_path}")
 
-        largest = max(width, height)
+    image = Image.open(path).convert("RGB")
 
-        if largest > MAX_IMAGE_SIZE:
-            scale = MAX_IMAGE_SIZE / float(largest)
+    width, height = image.size
 
-            new_size = (max(1, int(width * scale)), max(1, int(height * scale)))
+    if width <= 0 or height <= 0:
+        raise ValueError(f"Invalid image dimensions: {image_path}")
 
-            image = image.resize(new_size, Image.Resampling.LANCZOS)
+    maximum = max(width, height)
 
-        return image
+    if maximum > MAX_IMAGE_SIZE:
 
-    except Exception as exc:
-        print(f"[DINO] Image loading failed: {exc}")
-        return None
+        scale = MAX_IMAGE_SIZE / float(maximum)
+
+        new_width = max(
+            1,
+            int(width * scale),
+        )
+
+        new_height = max(
+            1,
+            int(height * scale),
+        )
+
+        image = image.resize(
+            (new_width, new_height),
+            Image.Resampling.LANCZOS,
+        )
+
+    return image
 
 
 # ============================================================
-# IMAGE PREPARATION
+# IMAGE VIEWS
 # ============================================================
 
 
-def create_grayscale_view(image: Image.Image) -> Image.Image:
-    """
-    Convert image to grayscale and return RGB.
-
-    This reduces dependence on:
-    gold / green / silver / black colour differences.
-    """
+def create_grayscale_view(image):
+    """Create grayscale RGB image."""
 
     gray = image.convert("L")
 
     return gray.convert("RGB")
 
 
-def create_center_crop(image: Image.Image) -> Image.Image:
-    """
-    Crop the central jewellery region.
+def create_contrast_view(image):
+    """Create high-contrast grayscale RGB image."""
 
-    This helps when catalogue/query images have different
-    amounts of background.
-    """
+    gray = image.convert("L")
 
-    width, height = image.size
+    contrast = ImageEnhance.Contrast(gray).enhance(1.8)
 
-    crop_ratio = 0.82
-
-    crop_width = int(width * crop_ratio)
-    crop_height = int(height * crop_ratio)
-
-    left = max(0, (width - crop_width) // 2)
-    top = max(0, (height - crop_height) // 2)
-
-    right = min(width, left + crop_width)
-    bottom = min(height, top + crop_height)
-
-    cropped = image.crop((left, top, right, bottom))
-
-    return cropped
+    return contrast.convert("RGB")
 
 
-def create_zoom_view(image: Image.Image) -> Image.Image:
-    """
-    Slight zoom into the jewellery.
-
-    Helps DINO focus more on the design rather than the
-    surrounding background.
-    """
+def create_center_crop(
+    image,
+    crop_ratio=0.82,
+):
+    """Create centre crop."""
 
     width, height = image.size
 
-    ratio = 0.70
+    crop_width = max(
+        1,
+        int(width * crop_ratio),
+    )
 
-    crop_width = int(width * ratio)
-    crop_height = int(height * ratio)
+    crop_height = max(
+        1,
+        int(height * crop_ratio),
+    )
 
-    left = max(0, (width - crop_width) // 2)
-    top = max(0, (height - crop_height) // 2)
+    left = max(
+        0,
+        (width - crop_width) // 2,
+    )
 
-    right = min(width, left + crop_width)
-    bottom = min(height, top + crop_height)
+    top = max(
+        0,
+        (height - crop_height) // 2,
+    )
 
-    cropped = image.crop((left, top, right, bottom))
+    right = min(
+        width,
+        left + crop_width,
+    )
 
-    return cropped
+    bottom = min(
+        height,
+        top + crop_height,
+    )
+
+    return image.crop(
+        (
+            left,
+            top,
+            right,
+            bottom,
+        )
+    )
 
 
-def create_views(image: Image.Image) -> List[Image.Image]:
+def create_zoom_view(
+    image,
+    crop_ratio=0.70,
+):
+    """Compatibility helper for older matcher code."""
+
+    return create_center_crop(
+        image,
+        crop_ratio=crop_ratio,
+    )
+
+
+# ============================================================
+# JEWELLERY FOREGROUND VIEW
+# ============================================================
+
+
+def create_foreground_pil_view(
+    image_path,
+):
     """
-    Generate views used for the final embedding.
+    Use the shared segmentation.py pipeline.
 
-    View 1:
-        Original
-
-    View 2:
-        Grayscale
-
-    View 3:
-        Center crop
-
-    View 4:
-        Zoom crop
+    Returns a PIL RGB jewellery-focused crop.
     """
 
-    return [
+    image = load_image(image_path)
+
+    try:
+
+        image_bgr = cv2.imread(str(image_path))
+
+        if image_bgr is None:
+            return create_center_crop(image)
+
+        segmented_crop, mask = get_segmented_crop(image_bgr)
+
+        if segmented_crop is None or segmented_crop.size == 0:
+            return create_center_crop(image)
+
+        crop_rgb = cv2.cvtColor(
+            segmented_crop,
+            cv2.COLOR_BGR2RGB,
+        )
+
+        crop = Image.fromarray(crop_rgb).convert("RGB")
+
+        return crop
+
+    except Exception as exc:
+
+        print("[SEGMENTATION] " f"Foreground view failed: {exc}")
+
+        return create_center_crop(image)
+
+
+# ============================================================
+# CREATE ALL VIEWS
+# ============================================================
+
+
+def create_views(
+    image,
+    image_path=None,
+):
+    """
+    Create four DINO views.
+
+    1. Original
+    2. Grayscale
+    3. Contrast grayscale
+    4. Jewellery-focused crop
+    """
+
+    views = [
         image,
         create_grayscale_view(image),
-        create_center_crop(image),
-        create_zoom_view(image),
+        create_contrast_view(image),
     ]
 
+    if image_path is not None:
+
+        views.append(create_foreground_pil_view(image_path))
+
+    else:
+
+        views.append(create_center_crop(image))
+
+    return views
+
 
 # ============================================================
-# DINO FEATURE EXTRACTION
+# BATCH DINO EXTRACTION
 # ============================================================
 
 
-@torch.inference_mode()
-def extract_dino_embedding(image: Image.Image) -> np.ndarray:
+@torch.no_grad()
+def _extract_embeddings(images):
+    """
+    Extract embeddings for all views in ONE DINO call.
 
-    processor, model = get_model()
+    Returns:
+        numpy array with shape:
+        (number_of_views, 768)
+    """
 
-    inputs = processor(images=image, return_tensors="pt")
+    processor, model = _load_model()
+
+    inputs = processor(
+        images=images,
+        return_tensors="pt",
+    )
 
     inputs = {key: value.to(DEVICE) for key, value in inputs.items()}
 
     outputs = model(**inputs)
 
-    # CLS token
-    embedding = outputs.last_hidden_state[:, 0, :]
+    embeddings = outputs.last_hidden_state[:, 0, :]
 
-    embedding = embedding.float()
+    embeddings = embeddings.detach().cpu().numpy()
 
-    # L2 normalize
-    embedding = torch.nn.functional.normalize(embedding, p=2, dim=1)
+    embeddings = embeddings.astype(np.float32)
 
-    result = embedding[0].cpu().numpy()
+    norms = np.linalg.norm(
+        embeddings,
+        axis=1,
+        keepdims=True,
+    )
 
-    return result.astype(np.float32)
+    norms = np.maximum(
+        norms,
+        1e-12,
+    )
+
+    embeddings = embeddings / norms
+
+    return embeddings.astype(np.float32)
 
 
 # ============================================================
-# FINAL EMBEDDING
+# MAIN EMBEDDING FUNCTION
 # ============================================================
 
 
-def create_embedding(image_path: str) -> np.ndarray:
+def create_embedding(
+    image_path,
+):
     """
-    Generate a robust jewellery embedding.
+    Create one 768-dimensional DINOv2-Base embedding.
 
-    We combine several views:
-
-        Original       -> 20%
-        Grayscale      -> 40%
-        Center crop    -> 25%
-        Zoom crop      -> 15%
-
-    Grayscale receives higher weight because the application
-    needs gold/green/prototype cross-material matching.
+    Four views are processed in one model call.
     """
+
+    image_path = str(image_path)
+
+    print(f"[DINO-BASE] Creating embedding: " f"{Path(image_path).name}")
 
     image = load_image(image_path)
 
-    if image is None:
-        raise ValueError(f"Unable to load image: {image_path}")
+    views = create_views(
+        image,
+        image_path=image_path,
+    )
 
-    print(f"[DINO] Creating embedding: " f"{Path(image_path).name}")
+    embeddings = _extract_embeddings(views)
 
-    views = create_views(image)
+    if embeddings.shape != (
+        len(views),
+        EMBEDDING_SIZE,
+    ):
+        raise ValueError("Unexpected DINO embedding shape: " f"{embeddings.shape}")
 
-    weights = np.array([0.20, 0.40, 0.25, 0.15], dtype=np.float32)
+    weights = VIEW_WEIGHTS.reshape(
+        -1,
+        1,
+    )
 
-    embeddings = []
+    combined = np.sum(
+        embeddings * weights,
+        axis=0,
+    )
 
-    for index, view in enumerate(views):
-
-        print(f"[DINO] Processing view " f"{index + 1}/{len(views)}")
-
-        emb = extract_dino_embedding(view)
-
-        embeddings.append(emb)
-
-    embeddings = np.stack(embeddings, axis=0)
-
-    combined = np.sum(embeddings * weights[:, None], axis=0)
-
-    # Final normalization
     norm = np.linalg.norm(combined)
 
-    if norm > 1e-8:
-        combined = combined / norm
+    if norm <= 1e-12:
+        raise ValueError("Combined DINO embedding is zero.")
+
+    combined = combined / norm
 
     return combined.astype(np.float32)
 
 
 # ============================================================
-# COMPATIBILITY FUNCTIONS
+# VALIDATION
 # ============================================================
 
 
-def get_embedding(image_path: str) -> np.ndarray:
-    """
-    Backwards-compatible alias.
-    """
+def validate_embedding(
+    embedding,
+):
+    """Validate a 768-dimensional embedding."""
 
-    return create_embedding(image_path)
+    if embedding is None:
+        return False
 
+    array = np.asarray(
+        embedding,
+        dtype=np.float32,
+    )
 
-def extract_orb_descriptors(image_path: str):
-    """
-    Optional lightweight local descriptor.
+    if array.ndim != 1:
+        return False
 
-    Kept for compatibility with older code.
-    """
+    if array.shape[0] != EMBEDDING_SIZE:
+        return False
 
-    image = cv2.imread(str(image_path), cv2.IMREAD_GRAYSCALE)
+    norm = np.linalg.norm(array)
 
-    if image is None:
-        return None
+    if norm <= 1e-12:
+        return False
 
-    orb = cv2.ORB_create(nfeatures=500)
-
-    keypoints, descriptors = orb.detectAndCompute(image, None)
-
-    return descriptors
+    return True
 
 
 # ============================================================
-# LIGHTWEIGHT IMAGE VALIDATION
+# ORB COMPATIBILITY
 # ============================================================
 
 
-def calculate_image_metrics(image_path: str) -> dict:
+def create_orb_descriptors(
+    image_path,
+    nfeatures=700,
+):
+    """
+    ORB compatibility helper.
+    """
 
     image = cv2.imread(str(image_path))
 
     if image is None:
-        return {"valid": False, "reason": "image_load_failed"}
+        return None
 
-    height, width = image.shape[:2]
+    gray = cv2.cvtColor(
+        image,
+        cv2.COLOR_BGR2GRAY,
+    )
 
-    if min(height, width) < 80:
-        return {"valid": False, "reason": "image_too_small"}
+    orb = cv2.ORB_create(nfeatures=nfeatures)
 
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    gray_std = float(np.std(gray))
-
-    edges = cv2.Canny(gray, 60, 150)
-
-    edge_density = float(np.mean(edges > 0))
+    keypoints, descriptors = orb.detectAndCompute(
+        gray,
+        None,
+    )
 
     return {
-        "valid": True,
-        "width": width,
-        "height": height,
-        "gray_std": gray_std,
-        "edge_density": edge_density,
+        "keypoints": keypoints,
+        "descriptors": descriptors,
     }
-
-
-def validate_query_image(image_path: str) -> tuple[bool, str]:
-
-    metrics = calculate_image_metrics(image_path)
-
-    if not metrics.get("valid"):
-        return False, metrics.get("reason", "invalid_image")
-
-    if metrics["gray_std"] < 8:
-        return False, "image_has_too_little_detail"
-
-    if metrics["edge_density"] < 0.002:
-        return False, "image_has_too_little_structure"
-
-    return True, "ok"
-
-
-# ============================================================
-# FOREGROUND COMPATIBILITY
-# ============================================================
-
-
-def create_foreground_mask(image: np.ndarray) -> np.ndarray:
-
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-
-    _, mask = cv2.threshold(blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-
-    kernel = np.ones((5, 5), np.uint8)
-
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
-
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, kernel)
-
-    return mask
-
-
-def crop_foreground(image: np.ndarray, mask: np.ndarray):
-
-    ys, xs = np.where(mask > 0)
-
-    if len(xs) < 50:
-        return image, mask
-
-    x1 = max(0, int(xs.min()))
-    x2 = min(image.shape[1], int(xs.max()) + 1)
-
-    y1 = max(0, int(ys.min()))
-    y2 = min(image.shape[0], int(ys.max()) + 1)
-
-    return (image[y1:y2, x1:x2], mask[y1:y2, x1:x2])
-
-
-def prepare_view(image: np.ndarray, mask: Optional[np.ndarray] = None, size: int = 224):
-
-    resized = cv2.resize(image, (size, size), interpolation=cv2.INTER_AREA)
-
-    return resized

@@ -1,299 +1,53 @@
-import os
-import json
-import numpy as np
+"""
+Legacy compatibility script.
 
-from backend.services.embedding import (
-    create_embedding,
-)
+JewelMatch AI now uses one catalogue index:
 
-# ============================================================
-# PATHS
-# ============================================================
+    backend/database/dino_index.npz
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+The old lightweight_index.npz workflow is no longer used
+by Matcher V4.
 
-PROJECT_DIR = os.path.dirname(BASE_DIR)
+This script now redirects to the active DINO index builder.
 
-DATABASE_DIR = os.path.join(
-    BASE_DIR,
-    "database",
-)
+Run from project root:
 
-CATALOGUE_FILE = os.path.join(
-    DATABASE_DIR,
-    "jewellery.json",
-)
+    python -m backend.scripts.create_embeddings
+"""
 
-INDEX_FILE = os.path.join(
-    DATABASE_DIR,
-    "lightweight_index.npz",
-)
-
-
-# ============================================================
-# CATALOGUE
-# ============================================================
-
-
-def load_catalogue():
-
-    if not os.path.exists(CATALOGUE_FILE):
-
-        return []
-
-    with open(
-        CATALOGUE_FILE,
-        "r",
-        encoding="utf-8",
-    ) as file:
-
-        data = json.load(file)
-
-    if isinstance(
-        data,
-        dict,
-    ):
-
-        if "jewellery" in data:
-
-            return data["jewellery"]
-
-        if "items" in data:
-
-            return data["items"]
-
-    if isinstance(
-        data,
-        list,
-    ):
-
-        return data
-
-    return []
-
-
-# ============================================================
-# ID
-# ============================================================
-
-
-def get_item_id(
-    item,
-):
-
-    return str(
-        item.get(
-            "id",
-            item.get(
-                "design_id",
-                "",
-            ),
-        )
-    )
-
-
-# ============================================================
-# COLLECTION
-# ============================================================
-
-
-def get_collection(
-    item,
-):
-
-    return (
-        str(
-            item.get(
-                "collection",
-                item.get(
-                    "category",
-                    "",
-                ),
-            )
-        )
-        .strip()
-        .lower()
-    )
-
-
-# ============================================================
-# IMAGE PATH
-# ============================================================
-
-
-def get_image_path(
-    item,
-):
-
-    image_path = item.get("image_path")
-
-    if not image_path:
-
-        image_path = item.get("image")
-
-    if not image_path:
-
-        image_path = item.get("path")
-
-    if not image_path:
-
-        return None
-
-    image_path = str(image_path).replace(
-        "\\",
-        "/",
-    )
-
-    candidates = [
-        os.path.join(
-            PROJECT_DIR,
-            image_path,
-        ),
-        os.path.join(
-            BASE_DIR,
-            image_path,
-        ),
-    ]
-
-    for candidate in candidates:
-
-        if os.path.exists(candidate):
-
-            return candidate
-
-    filename = os.path.basename(image_path)
-
-    for root, _, files in os.walk(PROJECT_DIR):
-
-        if filename in files:
-
-            return os.path.join(
-                root,
-                filename,
-            )
-
-    return None
-
-
-# ============================================================
-# BUILD
-# ============================================================
+from backend.services.matcher import build_index
 
 
 def main():
 
+    print()
+    print("=" * 70)
+    print("JEWELMATCH AI - ACTIVE DINO INDEX BUILDER")
     print("=" * 70)
 
-    print("JEWELMATCH AI - BUILD LIGHTWEIGHT FEATURE INDEX")
+    print("The old lightweight embedding index is no longer " "used by Matcher V4.")
 
-    print("=" * 70)
+    print()
+    print("Building the active DINO catalogue index...")
 
-    catalogue = load_catalogue()
-
-    print(f"Catalogue items: " f"{len(catalogue)}")
-
-    features = []
-    ids = []
-    collections = []
-
-    failed = []
-
-    total = len(catalogue)
-
-    for number, item in enumerate(
-        catalogue,
-        start=1,
-    ):
-
-        item_id = get_item_id(item)
-
-        collection = get_collection(item)
-
-        image_path = get_image_path(item)
-
-        print()
-
-        print(f"[{number}/{total}] " f"{item_id} | " f"{collection}")
-
-        if not image_path:
-
-            print("  ERROR: Image not found")
-
-            failed.append(item_id)
-
-            continue
-
-        try:
-
-            embedding = create_embedding(image_path)
-
-            features.append(embedding)
-
-            ids.append(item_id)
-
-            collections.append(collection)
-
-            print(f"  OK: " f"{embedding.shape}")
-
-        except Exception as exc:
-
-            print(f"  ERROR: {exc}")
-
-            failed.append(item_id)
-
-    if not features:
-
-        raise RuntimeError("No catalogue features could be created.")
-
-    feature_matrix = np.vstack(features).astype(np.float32)
-
-    os.makedirs(
-        DATABASE_DIR,
-        exist_ok=True,
-    )
-
-    np.savez_compressed(
-        INDEX_FILE,
-        features=feature_matrix,
-        ids=np.asarray(
-            ids,
-            dtype=str,
-        ),
-        collections=np.asarray(
-            collections,
-            dtype=str,
-        ),
+    result = build_index(
+        force=True,
+        verbose=True,
     )
 
     print()
-
+    print("=" * 70)
+    print("DINO INDEX BUILD COMPLETE")
     print("=" * 70)
 
-    print("LIGHTWEIGHT INDEX CREATED")
+    print(f"Gold indexed      : " f"{len(result['collections']['gold'])}")
 
-    print("=" * 70)
+    print(f"Prototype indexed : " f"{len(result['collections']['prototype'])}")
 
-    print(f"Items indexed: " f"{len(ids)}")
+    print(f"Errors            : " f"{len(result.get('errors', []))}")
 
-    print(f"Feature matrix: " f"{feature_matrix.shape}")
-
-    print(f"Failed items: " f"{len(failed)}")
-
-    print(f"Index file:")
-
-    print(INDEX_FILE)
-
-    if failed:
-
-        print()
-
-        print("Failed item IDs:")
-
-        for item_id in failed:
-
-            print(f" - {item_id}")
+    print()
 
 
 if __name__ == "__main__":
-
     main()

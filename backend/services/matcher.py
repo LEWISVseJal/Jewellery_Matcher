@@ -118,13 +118,22 @@ STRONG_LOCAL_THRESHOLD = 0.30
 # ============================================================
 
 # DINO is the strongest signal for cross-material matching.
-DINO_WEIGHT = 0.55
+DINO_WEIGHT = 0.45
 
 SHAPE_WEIGHT = 0.15
 
 STRUCTURE_WEIGHT = 0.25
 
-LOCAL_WEIGHT = 0.05
+LOCAL_WEIGHT = 0.15
+
+# Protect the strongest semantic candidates from fast-screening noise.
+DINO_PROTECTED_TOP_K = 4
+
+# Add the strongest design-screening candidates.
+FAST_DESIGN_TOP_K = 4
+
+# Maximum expensive verification candidates.
+EXPENSIVE_VERIFY_TOP_K = 8
 
 
 # ============================================================
@@ -1544,20 +1553,39 @@ def verify_design(
 def calculate_final_score(
     dino_score: float,
     design_score: float,
+    shape_score: Optional[float] = None,
+    structure_score: Optional[float] = None,
+    local_score: Optional[float] = None,
 ) -> float:
     """
-    Calculate final cross-material score.
+    Calculate the final cross-material score.
+
+    When the individual verification scores are available, use the
+    configured weights directly. This is important because otherwise
+    the old implementation effectively multiplied the design weights
+    twice and reduced the intended contribution of DINO/shape/local.
+
+    The two-argument form is kept for compatibility with older callers.
     """
 
-    score = DINO_WEIGHT * dino_score + (1.0 - DINO_WEIGHT) * design_score
-
-    return float(
-        np.clip(
-            score,
-            0.0,
-            1.0,
+    if (
+        shape_score is not None
+        and structure_score is not None
+        and local_score is not None
+    ):
+        score = (
+            DINO_WEIGHT * dino_score
+            + SHAPE_WEIGHT * shape_score
+            + STRUCTURE_WEIGHT * structure_score
+            + LOCAL_WEIGHT * local_score
         )
-    )
+    else:
+        score = (
+            DINO_WEIGHT * dino_score
+            + (1.0 - DINO_WEIGHT) * design_score
+        )
+
+    return float(np.clip(score, 0.0, 1.0))
 
 
 # ============================================================
@@ -1605,8 +1633,12 @@ def should_accept_candidate(
     # Normal match.
     # --------------------------------------------------------
 
-    if final_score >= FINAL_MATCH_THRESHOLD:
-
+    # Do not accept a candidate only because broad DINO + structure
+    # similarity is high. Require meaningful shape/local design evidence.
+    if final_score >= FINAL_MATCH_THRESHOLD and (
+        design_score >= DESIGN_MATCH_THRESHOLD
+        or local_score >= LOCAL_MATCH_THRESHOLD
+    ):
         return True, False
 
     # --------------------------------------------------------
@@ -1972,6 +2004,43 @@ def build_index(
 
 
 # ============================================================
+# FAST DESIGN SCREENING
+# ============================================================
+
+def fast_design_score(query_path: Path, candidate_path: Path) -> dict:
+    """
+    Cheap design screening used after DINO top-16 retrieval.
+    SIFT is intentionally skipped here.
+    """
+    query_image = _load_image(query_path)
+    candidate_image = _load_image(candidate_path)
+
+    if query_image is None or candidate_image is None:
+        return {"shape": 0.0, "structure": 0.0, "fast_design": 0.0}
+
+    try:
+        query_foreground = _get_foreground_image(query_path)
+    except Exception:
+        query_foreground = query_image
+
+    try:
+        candidate_foreground = _get_foreground_image(candidate_path)
+    except Exception:
+        candidate_foreground = candidate_image
+
+    shape = _shape_similarity(query_foreground, candidate_foreground)
+    structure = _structure_similarity(query_foreground, candidate_foreground)
+
+    fast_design = 0.40 * shape + 0.60 * structure
+
+    return {
+        "shape": float(shape),
+        "structure": float(structure),
+        "fast_design": float(np.clip(fast_design, 0.0, 1.0)),
+    }
+
+
+# ============================================================
 # MATCH JEWELLERY
 # ============================================================
 
@@ -2265,21 +2334,93 @@ def match_jewellery(
         )
 
     # ========================================================
-    # DESIGN VERIFICATION
+    # FAST DESIGN SCREENING — ALL DINO TOP 16
     # ========================================================
 
     print("\n" + "=" * 70)
+    print("FAST DESIGN SCREENING — TOP 16")
+    print("=" * 70)
 
-    print("DESIGN VERIFICATION")
+    fast_screened = []
 
+    for position, candidate in enumerate(retrieved[:DINO_RETRIEVAL_TOP_K], start=1):
+        global_position = candidate["index"]
+        candidate_id = str(ids[global_position])
+        candidate_path = resolve_image_path(str(image_paths[global_position]))
+
+        if candidate_path is None or not candidate_path.exists():
+            continue
+
+        fast = fast_design_score(query_path, candidate_path)
+        fast_screened.append({
+            **candidate,
+            "path": candidate_path,
+            "fast_shape": fast["shape"],
+            "fast_structure": fast["structure"],
+            "fast_design": fast["fast_design"],
+        })
+
+        print(
+            f"{position:02d}. {candidate_id} "
+            f"DINO={candidate['dino']:.4f} "
+            f"shape={fast['shape']:.4f} "
+            f"structure={fast['structure']:.4f} "
+            f"fast={fast['fast_design']:.4f}"
+        )
+
+    # --------------------------------------------------------
+    # IMPORTANT: do NOT let fast shape/structure screening
+    # remove a very strong DINO candidate.
+    #
+    # Example: J001 can be the clear DINO #1 while another ring
+    # gets a higher silhouette/structure score. The old logic
+    # sorted only by fast_design and could therefore discard J001
+    # before expensive verification.
+    #
+    # Keep the best DINO candidates + best fast-design candidates.
+    # This creates a protected union of candidates.
+    # --------------------------------------------------------
+
+    dino_protected = sorted(
+        fast_screened,
+        key=lambda x: x["dino"],
+        reverse=True,
+    )[:DINO_PROTECTED_TOP_K]
+
+    fast_ranked = sorted(
+        fast_screened,
+        key=lambda x: (x["fast_design"], x["dino"]),
+        reverse=True,
+    )[:FAST_DESIGN_TOP_K]
+
+    verification_map = {}
+
+    for candidate in dino_protected + fast_ranked:
+        verification_map[candidate["index"]] = candidate
+
+    verification_candidates = list(verification_map.values())
+
+    # Put stronger DINO candidates first in the verification log.
+    verification_candidates.sort(
+        key=lambda x: x["dino"],
+        reverse=True,
+    )
+
+    verification_candidates = verification_candidates[:EXPENSIVE_VERIFY_TOP_K]
+
+    print("\n[DESIGN] Expensive verification candidates:", len(verification_candidates))
+
+    # ========================================================
+    # EXPENSIVE DESIGN VERIFICATION — TOP 8
+    # ========================================================
+
+    print("\n" + "=" * 70)
+    print("EXPENSIVE DESIGN VERIFICATION — TOP 8")
     print("=" * 70)
 
     verified = []
 
-    for position, candidate in enumerate(
-        retrieved[:DESIGN_VERIFY_TOP_K],
-        start=1,
-    ):
+    for position, candidate in enumerate(verification_candidates, start=1):
 
         global_position = candidate["index"]
 
@@ -2287,7 +2428,7 @@ def match_jewellery(
 
         candidate_collection = normalize_collection(collections[global_position])
 
-        candidate_path = Path(str(image_paths[global_position]))
+        candidate_path = candidate.get("path") or resolve_image_path(str(image_paths[global_position]))
 
         print(f"\n[CANDIDATE {position}] " f"{candidate_id}")
 
@@ -2355,6 +2496,9 @@ def match_jewellery(
         final_score = calculate_final_score(
             dino_score,
             design_score,
+            shape_score=shape_score,
+            structure_score=structure_score,
+            local_score=local_score,
         )
 
         local_rescue_score = calculate_local_rescue(

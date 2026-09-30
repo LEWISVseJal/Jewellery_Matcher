@@ -14,17 +14,12 @@ ENV/
 
 .vscode/
 .idea/
-
 .git/
-.gitignore/
-*.code-workspace
+.gitignore
 
-Thumbs.db
-Desktop.ini
-
+*.log
 *.tmp
 *.temp
-*.log
 
 tests/
 debug/
@@ -34,5 +29,3 @@ screenshots/
 model_cache/
 .huggingface/
 .cache/
-
-images_G_P/

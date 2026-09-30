@@ -1380,3 +1380,321 @@ body::before {
     height: 225px;
   }
 }
+/* ============================================================
+   CAMERA / UPLOAD OPTIONS
+   ============================================================ */
+
+.upload-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+.camera-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+
+  min-height: 46px;
+  padding: 0 20px;
+
+  border: 1px solid rgba(30, 30, 30, 0.14);
+  border-radius: 10px;
+
+  background: #ffffff;
+  color: #222222;
+
+  font-size: 14px;
+  font-weight: 600;
+
+  cursor: pointer;
+
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.camera-button:hover {
+  transform: translateY(-1px);
+
+  border-color: rgba(30, 30, 30, 0.25);
+
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
+}
+
+.camera-button span {
+  font-size: 16px;
+}
+
+/* ============================================================
+   CAMERA MODAL
+   ============================================================ */
+
+.camera-modal {
+  position: fixed;
+
+  inset: 0;
+
+  z-index: 9999;
+
+  display: flex;
+
+  align-items: center;
+  justify-content: center;
+
+  padding: 20px;
+}
+
+.camera-modal.hidden {
+  display: none;
+}
+
+.camera-modal-backdrop {
+  position: absolute;
+
+  inset: 0;
+
+  background: rgba(0, 0, 0, 0.72);
+
+  backdrop-filter: blur(5px);
+}
+
+.camera-dialog {
+  position: relative;
+
+  z-index: 2;
+
+  width: min(620px, 100%);
+
+  max-height: calc(100vh - 40px);
+
+  overflow: auto;
+
+  background: #ffffff;
+
+  border-radius: 18px;
+
+  box-shadow: 0 25px 80px rgba(0, 0, 0, 0.3);
+
+  padding: 20px;
+}
+
+.camera-header {
+  display: flex;
+
+  align-items: flex-start;
+  justify-content: space-between;
+
+  gap: 20px;
+
+  margin-bottom: 16px;
+}
+
+.camera-eyebrow {
+  font-size: 11px;
+
+  font-weight: 700;
+
+  text-transform: uppercase;
+
+  letter-spacing: 0.12em;
+
+  opacity: 0.55;
+
+  margin-bottom: 4px;
+}
+
+.camera-header h2 {
+  margin: 0;
+
+  font-size: 22px;
+
+  line-height: 1.2;
+}
+
+.camera-close-button {
+  width: 38px;
+  height: 38px;
+
+  border: none;
+
+  border-radius: 50%;
+
+  background: #f2f2f2;
+
+  color: #222;
+
+  font-size: 25px;
+
+  line-height: 1;
+
+  cursor: pointer;
+}
+
+.camera-preview-wrapper {
+  position: relative;
+
+  width: 100%;
+
+  aspect-ratio: 4 / 3;
+
+  overflow: hidden;
+
+  border-radius: 14px;
+
+  background: #111;
+}
+
+.camera-preview-wrapper video {
+  display: block;
+
+  width: 100%;
+  height: 100%;
+
+  object-fit: cover;
+}
+
+.camera-placeholder {
+  position: absolute;
+
+  inset: 0;
+
+  display: flex;
+
+  flex-direction: column;
+
+  align-items: center;
+  justify-content: center;
+
+  color: #ffffff;
+
+  text-align: center;
+}
+
+.camera-placeholder.hidden {
+  display: none;
+}
+
+.camera-placeholder span {
+  font-size: 40px;
+
+  margin-bottom: 10px;
+}
+
+.camera-placeholder p {
+  margin: 0;
+
+  font-size: 14px;
+}
+
+.camera-error {
+  margin-top: 12px;
+
+  padding: 10px 12px;
+
+  border-radius: 8px;
+
+  background: #fff0f0;
+
+  color: #b42318;
+
+  font-size: 13px;
+
+  line-height: 1.4;
+}
+
+.camera-error.hidden {
+  display: none;
+}
+
+.camera-actions {
+  display: flex;
+
+  align-items: center;
+
+  justify-content: flex-end;
+
+  gap: 10px;
+
+  margin-top: 16px;
+}
+
+.camera-secondary-button,
+.camera-capture-button {
+  min-height: 44px;
+
+  padding: 0 18px;
+
+  border-radius: 9px;
+
+  font-size: 14px;
+
+  font-weight: 600;
+
+  cursor: pointer;
+}
+
+.camera-secondary-button {
+  border: 1px solid rgba(30, 30, 30, 0.14);
+
+  background: #ffffff;
+
+  color: #222;
+}
+
+.camera-capture-button {
+  display: inline-flex;
+
+  align-items: center;
+  justify-content: center;
+
+  gap: 8px;
+
+  border: none;
+
+  background: #222;
+
+  color: #ffffff;
+}
+
+.camera-capture-button:hover {
+  opacity: 0.9;
+}
+
+.camera-capture-icon {
+  font-size: 12px;
+}
+
+/* ============================================================
+   MOBILE CAMERA
+   ============================================================ */
+
+@media (max-width: 600px) {
+  .camera-modal {
+    padding: 10px;
+  }
+
+  .camera-dialog {
+    padding: 14px;
+
+    border-radius: 14px;
+  }
+
+  .camera-header h2 {
+    font-size: 19px;
+  }
+
+  .camera-actions {
+    justify-content: stretch;
+  }
+
+  .camera-secondary-button,
+  .camera-capture-button {
+    flex: 1;
+  }
+}

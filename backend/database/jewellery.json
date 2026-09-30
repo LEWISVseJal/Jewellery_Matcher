@@ -309,5 +309,20 @@
         "description": "",
         "image": "J031.jpeg",
         "category": "Ring"
+    },
+    {
+        "id": "GOLD0001",
+        "design_id": "GOLD0001",
+        "name": "Gold Ring",
+        "collection": "gold",
+        "category": "gold",
+        "description": "",
+        "image": "backend/catalogue/gold/61c372a8ae68.jpg",
+        "image_path": "backend/catalogue/gold/61c372a8ae68.jpg",
+        "original_filename": "gold ring.jpg",
+        "segmented_image": "backend/database/segmented_catalogue/gold/61c372a8ae68_segmented.jpg",
+        "gender": "Unisex",
+        "type": "Ring",
+        "subtype": "Engagement"
     }
 ]

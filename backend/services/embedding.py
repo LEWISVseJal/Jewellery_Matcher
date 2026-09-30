@@ -11,13 +11,23 @@ Purpose:
 - Compatible with matcher.py
 """
 
+import os
+
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+
+import torch
+
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
+
 from __future__ import annotations
 
 from pathlib import Path
 
 import cv2
 import numpy as np
-import torch
 
 from PIL import Image, ImageEnhance
 from transformers import AutoImageProcessor, AutoModel
